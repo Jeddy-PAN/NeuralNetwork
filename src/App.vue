@@ -9,6 +9,7 @@ import {
 import { ref } from 'vue';
 import LossPlot from './components/LossPlot.vue';
 import ClassifyPlot from './components/ClassifyPlot.vue';
+import HomePage from './components/HomePage.vue';
 
 function clearLocalStorage() {
 	localStorage.clear();
@@ -24,7 +25,8 @@ async function getID() {
 
 <template>
 	<div>
-		<button @click="getID">GET id: {{ client_id }}</button>
+		<HomePage />
+		<!-- <button @click="getID">GET id: {{ client_id }}</button>
 		<button @click="setReadyForTrain(client_id)">Ready</button>
 
 		<button
@@ -49,6 +51,6 @@ async function getID() {
 
 		<button @click="clearLocalStorage()">Clear Local ID</button>
 		<ClassifyPlot :reset-flag="resetPlotFlag" @classifyResetComplete="resetPlotFlag = false" />
-		<LossPlot :reset-flag="resetPlotFlag" @resetComplete="resetPlotFlag = false" />
+		<LossPlot :reset-flag="resetPlotFlag" @resetComplete="resetPlotFlag = false" /> -->
 	</div>
 </template>
