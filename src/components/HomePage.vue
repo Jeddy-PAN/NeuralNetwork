@@ -26,10 +26,8 @@
         <button 
           @click="toggleReady"
           class="btn btn-ready"
-          :class="{ disabled: isReady }"
-          :disabled="isReady"
         >
-          {{ isReady ? 'IS READY' : 'GET READY' }}
+          {{ isReady ? 'NO READY' : 'GET READY' }}
         </button>
         <div class="status-indicator">
           <div class="dot" :class="{ ready: isReady }"></div>
@@ -72,7 +70,8 @@ import { wsManager } from '../utils/backend/CPU/tools/websocketManager';
 import { 
     getClientId,
     setReadyForTrain, 
-    resetServer
+    resetServer,
+    NotReadyForTrain,
 } from '../utils/backend/CPU/tools/client';
 import { setFlagTrain, setFlagStop } from '../utils/backend/GPU/initModel/GPUTraining';
 import ClassifyPlot from './ClassifyPlot.vue';
@@ -102,6 +101,7 @@ const handleConnectToggle = async() => {
   } else {
     if(wsManager.isConnected) {
         wsManager.disconnect();
+        await NotReadyForTrain(client_id.value);
         isReady.value = false;
         ws_id.value = '';
         client_id.value = '';
@@ -111,8 +111,14 @@ const handleConnectToggle = async() => {
 
 // 其他功能
 const toggleReady = async() => {
-    await setReadyForTrain(client_id.value);
-    isReady.value = true;
+    if(!isReady.value) {
+       await setReadyForTrain(client_id.value);
+       isReady.value = true;
+    }else {
+       await NotReadyForTrain(client_id.value);
+       isReady.value = false;
+    }
+   
 }
 
 const handleGetId = () => {

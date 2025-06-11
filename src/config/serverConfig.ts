@@ -22,6 +22,7 @@ export const SERVER_CONFIG = {
 		startTrain: '/api/start-train',
 		getDataset: '/get_dataset',
 		readyToTrain: '/ready_to_train',
+		notReadyToTrain: '/not_ready_to_train',
 		reset: '/reset',
 		submitGradients: '/submit_gradients',
 		checkRoundStatus: '/check_round_status',

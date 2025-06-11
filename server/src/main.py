@@ -232,6 +232,26 @@ async def ready_to_train(client_id: str):
 		"client_id": client_id
 	}
 
+@app.get("/not_ready_to_train/{client_id}")
+async def not_ready_to_train(client_id: str):
+	global EXPECTED_CLIENTS
+
+	if (ready_clients.index(client_id) >= 0):
+		ready_clients.remove(client_id)
+		EXPECTED_CLIENTS = len(ready_clients)
+		return {
+			"status": "success",
+			"message": "Client is removed",
+			"client_id": client_id
+		}
+	else:
+		return {
+			"status": "fail",
+			"message": "There is no such client or other errors exist",
+			"client_id": client_id
+		}
+
+
 def split_csv(file_path, total_part_num):
 	df = pandas.read_csv(file_path)
 	df_len = len(df)
