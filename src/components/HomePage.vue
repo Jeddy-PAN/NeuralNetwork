@@ -128,15 +128,19 @@ const handleStop = () => {
     setFlagStop();
 }
 
-const handleReset = async() => {
+const handleReset = async() => { // reset server information
     await resetServer();
     isReady.value = false;
     resetPlotFlag.value = true;
 }
 
-const handleClear = () => { 
+const handleClear = async() => { // reset server and client both
+    await handleReset();
+    wsManager.disconnect();
     localStorage.clear();
+    ws_id.value = '';
     client_id.value = '';
+    isConnected.value = false;
 };
 </script>
 
