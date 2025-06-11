@@ -38,16 +38,22 @@
       <!-- Start 控制区 -->
       <div class="start-control">
         <div class="options">
-          <select v-model="startOption1">
-            <option value="option1">OPTION1</option>
-            <option value="option2">OPTION2</option>
+          <select v-model="dataOption">
+            <option value="dataClass1.csv">dataClass1.csv</option>
+            <option value="dataClass2.csv">dataClass2.csv</option>
+            <option value="dataClass3.csv">dataClass3.csv</option>
           </select>
           <select v-model="startOption2">
             <option value="modeA">MODEA</option>
             <option value="modeB">MODEB</option>
           </select>
         </div>
-        <button @click="handleStart" class="btn btn-start">START</button>
+        <button 
+          @click="handleStart" 
+          class="btn btn-start"
+          :class="{ disabled: !isReady }"
+          :disabled="!isReady"
+        >START</button>
       </div>
 
       <!-- Stop 按钮 -->
@@ -84,7 +90,7 @@ const isConnected = ref(false);
 const isReady = ref(false);
 const client_id = ref('');
 const ws_id = ref('');
-const startOption1 = ref('option1');
+const dataOption = ref('dataClass1.csv');
 const startOption2 = ref('modeA');
 const resetPlotFlag = ref(false);
 
@@ -127,7 +133,8 @@ const handleGetId = () => {
 
 const handleStart = async() => {
     setFlagTrain();
-    startTrain();
+    console.log(dataOption.value);
+    startTrain(dataOption.value);
 }
 
 const handleStop = () => {
@@ -270,6 +277,11 @@ input:checked + .slider:before {
 .btn-start {
   background-color: #28a745;
   width: 100%;
+}
+
+.btn-start.disabled {
+  background-color: #aaa;
+  cursor: default;
 }
 
 .btn-stop {

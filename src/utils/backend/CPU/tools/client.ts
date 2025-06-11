@@ -67,9 +67,9 @@ export async function startTrain(datasetName: string) {
 }
 
 // /api/dataset/{dataset_name}
-export async function fetchDataset(client_id: string): Promise<string> {
+export async function fetchDataset(client_id: string, dataset_name: string): Promise<string> {
 	try {
-		const response = await fetch(`${serverUrl}${SERVER_CONFIG.endpoints.getDataset}/${client_id}`, {
+		const response = await fetch(`${serverUrl}${SERVER_CONFIG.endpoints.getDataset}/${client_id}/${dataset_name}`, {
 			method: 'GET',
 			headers: {
 				'Content-Type': 'application/json',

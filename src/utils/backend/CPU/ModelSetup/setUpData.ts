@@ -3,7 +3,7 @@ import { useComputeGraphStore } from '../../../../store/computeGraphStore';
 import setUpModel from './setUpModel';
 import { getClientId, fetchDataset } from '../tools/client';
 
-const startTrain = async () => {
+const startTrain = async (dataset_name: string) => {
 	const computeGraphStore = useComputeGraphStore();
 
 	// const datasetName = 'easy_class.';
@@ -11,7 +11,7 @@ const startTrain = async () => {
 
 	const client_id = await getClientId();
 
-	const dataset = await fetchDataset(client_id);
+	const dataset = await fetchDataset(client_id, dataset_name);
 
 	// stopFlag.value = false;
 
