@@ -36,16 +36,15 @@ async function fetchClientId(): Promise<string | null> {
 export async function getClientId(): Promise<string> {
 	let c_id = localStorage.getItem('client_id');
 	if (c_id == null) {
-		// 首先需要建立WebSocket连接来获取client_id
+		// 使用临时ID建立WebSocket连接来获取真实的client_id
 		const tempId = `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 		await wsManager.connect(tempId);
 		c_id = await wsManager.getClientId();
 		localStorage.setItem('client_id', c_id);
 		console.log('get client_id from server via WebSocket', c_id);
-
-		// 重新连接使用正确的client_id
+		
+		// 断开临时连接，后续会用真实ID重新连接
 		wsManager.disconnect();
-		await wsManager.connect(c_id);
 	}
 
 	if (c_id == null) {

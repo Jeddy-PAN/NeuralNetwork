@@ -371,16 +371,17 @@ const numIterations = _iterations;
 	console.log('enter training with config:', clientTrainingConfig);
 	const startTime = performance.now();
 	
-	// 建立WebSocket连接
+	// 检查WebSocket连接状态
 	const clientId = localStorage.getItem('client_id');
-	if (clientId && !wsManager.isConnected()) {
-		try {
-			await wsManager.connect(clientId);
-			console.log('WebSocket connection established for training');
-		} catch (error) {
-			console.warn('WebSocket connection failed, will use polling fallback:', error);
-		}
+	if (!clientId) {
+		throw new Error('Client ID not found. Please start training from the UI.');
 	}
+	
+	if (!wsManager.isConnected()) {
+		throw new Error('WebSocket not connected. Please start training from the UI.');
+	}
+	
+	console.log('Using existing WebSocket connection for training');
 
 	let localIteration = 0;
 	
@@ -613,7 +614,6 @@ const numIterations = _iterations;
 				throw new Error('Error: Round not completed');
 			}
 
-			console.log('Round completed successfully via WebSocket');
 		} catch (error) {
 			console.error('WebSocket gradient submission failed:', error);
 			

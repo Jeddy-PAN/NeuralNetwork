@@ -66,7 +66,7 @@ class WebSocketManager {
                 this.ws.onclose = () => {
                     console.log('WebSocket connection closed');
                     this.isConnecting = false;
-                    this.scheduleReconnect();
+                    // this.scheduleReconnect();
                 };
 
                 this.ws.onerror = (error) => {
@@ -224,7 +224,6 @@ class WebSocketManager {
     }
 
     private handleRoundComplete(message: any) {
-        console.log('Round completed:', message);
         // 触发轮次完成事件
         this.emit('training_round_complete', message);
     }

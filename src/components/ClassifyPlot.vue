@@ -75,7 +75,6 @@ const unsubscribe = store.$onAction(
 					});
 				}
 
-				console.log('ClassifyPlotData: ', data);
 				drawClassifyPlot();
 			}
 		});
@@ -98,11 +97,11 @@ const drawClassifyPlot = () => {
 
 	const xScale = d3.scaleLinear().domain([0, 1]).range([0, width]);
 	const yScale = d3.scaleLinear().domain([0, 1]).range([0, height]);
-	console.log(
-		data.map((d) => {
-			return [Math.floor(xScale(d.x)), Math.floor(yScale(d.y))];
-		})
-	);
+	// console.log(
+	// 	data.map((d) => {
+	// 		return [Math.floor(xScale(d.x)), Math.floor(yScale(d.y))];
+	// 	})
+	// );
 	const points = data.map((d) => [xScale(d.x), yScale(d.y)]);
 	const delaunay = d3.Delaunay.from(points);
 	const voronoi = delaunay.voronoi([0, 0, width, height]);

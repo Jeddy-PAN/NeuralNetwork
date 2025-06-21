@@ -13,7 +13,7 @@ import logging
 from pathlib import Path
 
 # 配置日志
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.ERROR)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
@@ -89,12 +89,24 @@ class ConnectionManager:
             logger.error(f"Failed to connect WebSocket for {client_id}: {e}")
             raise
     
-    def disconnect(self, client_id: str):
+    async def disconnect(self, client_id: str):
+        """异步断开连接并处理训练逻辑"""
         if client_id in self.active_connections:
             del self.active_connections[client_id]
             if client_id in self.connection_times:
                 del self.connection_times[client_id]
             logger.info(f"WebSocket disconnected: {client_id}")
+            
+            # 检查是否影响当前训练轮次
+            await self._handle_client_disconnect(client_id)
+    
+    def _disconnect_sync(self, client_id: str):
+        """同步版本的断开连接，不处理训练逻辑"""
+        if client_id in self.active_connections:
+            del self.active_connections[client_id]
+            if client_id in self.connection_times:
+                del self.connection_times[client_id]
+            logger.info(f"WebSocket sync disconnected: {client_id}")
     
     async def send_personal_message(self, message: dict, client_id: str) -> bool:
         if client_id not in self.active_connections:
@@ -105,7 +117,8 @@ class ConnectionManager:
             return True
         except Exception as e:
             logger.warning(f"Failed to send message to {client_id}: {e}")
-            self.disconnect(client_id)
+            # 同步调用disconnect的同步版本
+            self._disconnect_sync(client_id)
             return False
     
     async def broadcast_to_connected(self, message: dict) -> int:
@@ -126,6 +139,65 @@ class ConnectionManager:
     
     def get_connected_clients(self) -> List[str]:
         return list(self.active_connections.keys())
+    
+    async def _handle_client_disconnect(self, disconnected_client_id: str):
+        """处理客户端断开连接对训练的影响"""
+        global current_round_id, gradient_storage, new_gradient
+        
+        # 检查当前轮次是否受影响
+        if current_round_id in gradient_storage:
+            connected_clients = self.get_connected_clients()
+            submitted_clients = list(gradient_storage[current_round_id].keys())
+            
+            logger.info(f"Client {disconnected_client_id} disconnected. Current round {current_round_id}: "
+                       f"{len(submitted_clients)} submitted, {len(connected_clients)} remaining connected")
+            
+            # 如果断开的客户端已经提交了梯度，从提交列表中移除
+            if disconnected_client_id in submitted_clients:
+                logger.info(f"Removing gradient from disconnected client {disconnected_client_id}")
+                del gradient_storage[current_round_id][disconnected_client_id]
+            
+            # 使用统一的聚合判断逻辑
+            if len(connected_clients) > 0:  # 确保还有连接的客户端
+                should_aggregate = await _check_should_aggregate(current_round_id, connected_clients)
+                
+                if should_aggregate:
+                    logger.info(f"Triggering aggregation after client disconnect for round {current_round_id}")
+                    
+                    # 开始聚合
+                    success = await _aggregate_and_broadcast(current_round_id, connected_clients)
+                    
+                    if success:
+                        # 广播完成消息给剩余客户端
+                        await self.broadcast_to_connected({
+                            "type": "round_complete",
+                            "round_id": current_round_id,
+                            "status": "complete",
+                            "message": f"gradients aggregated after client {disconnected_client_id} left"
+                        })
+                        
+                        # 增加轮次ID
+                        current_round_id += 1
+                        logger.info(f"Round {current_round_id - 1} completed, starting round {current_round_id}")
+                else:
+                    # 通知剩余客户端等待状态更新
+                    remaining_submitted = list(gradient_storage[current_round_id].keys())
+                    waiting_count = len(connected_clients) - len(remaining_submitted)
+                    await self.broadcast_to_connected({
+                        "type": "participant_left",
+                        "left_client": disconnected_client_id,
+                        "remaining_participants": len(connected_clients),
+                        "current_round": current_round_id,
+                        "waiting_for": waiting_count,
+                        "status": "waiting"
+                    })
+            else:
+                # 没有剩余客户端，清理当前轮次
+                logger.warning(f"No clients remaining, clearing round {current_round_id}")
+                if current_round_id in gradient_storage:
+                    del gradient_storage[current_round_id]
+                if current_round_id in round_start_times:
+                    del round_start_times[current_round_id]
 
 manager = ConnectionManager()
 
@@ -306,17 +378,6 @@ async def submit_gradients_handler(data: GradientData):
     if client_id not in connected_clients:
         raise ValueError("client is not connected")
 
-    # 更新性能记录
-    if client_id in client_performance:
-        old_time = client_performance[client_id]["avg_compute_time"]
-        if old_time == 0:
-            client_performance[client_id]["avg_compute_time"] = compute_time
-        else:
-            alpha = 0.3  # 学习率
-            client_performance[client_id]["avg_compute_time"] = (
-                alpha * compute_time + (1 - alpha) * old_time
-            )
-
     # 初始化梯度存储
     if current_round_id not in gradient_storage:
         gradient_storage[current_round_id] = {}
@@ -328,10 +389,12 @@ async def submit_gradients_handler(data: GradientData):
         "submit_time": time.time()
     }
 
-    logger.info(f"Gradient received from client: {client_id}, round: {current_round_id}")
+    logger.info(f"Gradient received from client: {client_id}, round: {current_round_id} ({len(gradient_storage[current_round_id])}/{len(connected_clients)})")
 
-    # 检查是否应该触发聚合
-    if await _should_aggregate_gradients(current_round_id, connected_clients):
+    # 统一的聚合判断逻辑
+    should_aggregate = await _check_should_aggregate(current_round_id)
+    
+    if should_aggregate:
         success = await _aggregate_and_broadcast(current_round_id, connected_clients)
         
         if success:
@@ -570,7 +633,7 @@ async def _aggregate_and_broadcast(round_id: int, connected_clients: List[str]) 
                              for values in zip(*tensors)]
                 new_gradient.append(tensor_avg)
                 
-            logger.info(f"Weighted aggregation completed for round {round_id} with {len(selected_clients)} clients")
+            logger.info(f"Weighted aggregation completed for round {round_id} with {len(selected_clients)} / {len(connected_clients)} clients")
         else:
             # 传统平均聚合
             client_gradients_data = [round_data[cid]["gradient"] for cid in selected_clients]
@@ -580,7 +643,7 @@ async def _aggregate_and_broadcast(round_id: int, connected_clients: List[str]) 
                 tensor_avg = [sum(values) / len(selected_clients) for values in zip(*tensors)]
                 new_gradient.append(tensor_avg)
                 
-            logger.info(f"Standard aggregation completed for round {round_id}")
+            logger.info(f"Standard aggregation completed for round {round_id} with {len(selected_clients)} / {len(connected_clients)} clients")
         
         # 清理已完成的轮次数据
         del gradient_storage[round_id]
@@ -593,46 +656,24 @@ async def _aggregate_and_broadcast(round_id: int, connected_clients: List[str]) 
         logger.error(f"Failed to aggregate gradients for round {round_id}: {e}")
         return False
 
-async def _should_aggregate_gradients(round_id: int, connected_clients: List[str]) -> bool:
-    """智能判断是否应该聚合梯度"""
+async def _check_should_aggregate(round_id: int, connected_clients: List[str] = None) -> bool:
+    """统一的聚合条件检查函数"""
     if round_id not in gradient_storage:
         return False
     
     submitted_clients = list(gradient_storage[round_id].keys())
     
-    # 策略1: 所有连接的客户端都提交了
+    if connected_clients is None:
+        connected_clients = manager.get_connected_clients()
+    
+    logger.info(f"Checking aggregation for round {round_id}: {len(submitted_clients)}/{len(connected_clients)} clients submitted")
+    
+    # 唯一策略: 所有连接的客户端都提交了梯度
     if len(submitted_clients) == len(connected_clients):
+        logger.info(f"All {len(connected_clients)} connected clients have submitted gradients")
         return True
     
-    # 策略2: 超时策略
-    if round_id in round_start_times:
-        elapsed_time = time.time() - round_start_times[round_id]
-        
-        # 检查是否有PC客户端参与
-        pc_clients = [
-            cid for cid in submitted_clients 
-            if client_device_info.get(cid, {}).get("device_type") == "pc"
-        ]
-        
-        if pc_clients and elapsed_time > MAX_WAIT_TIME_PC:
-            return True
-        elif elapsed_time > MAX_WAIT_TIME_MOBILE:
-            return True
-    
-    # 策略3: 性能权重策略
-    total_submitted_weight = sum(
-        client_performance.get(cid, {}).get("performance_weight", 1.0) 
-        for cid in submitted_clients
-    )
-    total_possible_weight = sum(
-        client_performance.get(cid, {}).get("performance_weight", 1.0) 
-        for cid in connected_clients
-    )
-    
-    if (total_possible_weight > 0 and 
-        (total_submitted_weight / total_possible_weight) > PERFORMANCE_WEIGHT_THRESHOLD):
-        return True
-    
+    logger.info(f"Waiting for more clients: {len(connected_clients) - len(submitted_clients)} remaining")
     return False
 
 @app.websocket("/ws/{client_id}")
@@ -660,7 +701,7 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
                 logger.warning(f"Unknown message type from {client_id}: {message.get('type')}")
                 
     except WebSocketDisconnect:
-        manager.disconnect(client_id)
+        await manager.disconnect(client_id)
     except Exception as e:
         logger.error(f"WebSocket error for {client_id}: {e}")
-        manager.disconnect(client_id)
+        await manager.disconnect(client_id)
