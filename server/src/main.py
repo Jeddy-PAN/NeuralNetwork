@@ -13,7 +13,7 @@ import logging
 from pathlib import Path
 
 # 配置日志
-logging.basicConfig(level=logging.ERROR)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
@@ -657,7 +657,7 @@ async def _aggregate_and_broadcast(round_id: int, connected_clients: List[str]) 
         return False
 
 async def _check_should_aggregate(round_id: int, connected_clients: List[str] = None) -> bool:
-    """统一的聚合条件检查函数"""
+    """简化的聚合条件检查函数 - 基于剩余设备权重加和的等待策略"""
     if round_id not in gradient_storage:
         return False
     
@@ -668,13 +668,32 @@ async def _check_should_aggregate(round_id: int, connected_clients: List[str] = 
     
     logger.info(f"Checking aggregation for round {round_id}: {len(submitted_clients)}/{len(connected_clients)} clients submitted")
     
-    # 唯一策略: 所有连接的客户端都提交了梯度
-    if len(submitted_clients) == len(connected_clients):
+    # 基础条件：至少需要2个客户端或所有客户端都已提交
+    if len(submitted_clients) >= len(connected_clients):
         logger.info(f"All {len(connected_clients)} connected clients have submitted gradients")
         return True
     
-    logger.info(f"Waiting for more clients: {len(connected_clients) - len(submitted_clients)} remaining")
-    return False
+    # if len(submitted_clients) < 2:
+    #     logger.info(f"Need at least 2 clients, currently have {len(submitted_clients)}")
+    #     return False
+    
+    # 计算剩余设备权重总和
+    remaining_weight_sum = 0
+    for client_id in connected_clients:
+        if client_id not in submitted_clients:
+            weight = client_performance.get(client_id, {}).get("performance_weight", 0.5)
+            remaining_weight_sum += weight
+    
+    # 生成随机数并比较
+    random_value = np.random.random()
+    should_wait = random_value < remaining_weight_sum
+    
+    logger.info(f"简化等待决策 - 轮次 {round_id}: "
+               f"剩余权重总和={remaining_weight_sum:.3f}, "
+               f"随机值={random_value:.3f}, "
+               f"决策={'等待' if should_wait else '聚合'}")
+    
+    return not should_wait
 
 @app.websocket("/ws/{client_id}")
 async def websocket_endpoint(websocket: WebSocket, client_id: str):
