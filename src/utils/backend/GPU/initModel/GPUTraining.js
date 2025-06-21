@@ -47,6 +47,7 @@ import { registerDevice, submitBenchmark, detectDeviceType } from '../../CPU/too
 import { getClientId } from '../../CPU/tools/client.ts';
 import { submitGradientsWithWebSocket, wsManager } from '../../CPU/tools/websocketManager.ts';
 import VConsole from 'vconsole';
+import { mode } from 'd3';
 
 // 默认客户端训练配置
 let clientTrainingConfig = {
@@ -455,7 +456,6 @@ const numIterations = _iterations;
 			device.queue.submit([gpuCommands]);
 		}
 
-		await device.queue.onSubmittedWorkDone();
 
 		const readCommandEncoder = device.createCommandEncoder();
 		readCommandEncoder.copyBufferToBuffer(
@@ -688,7 +688,6 @@ const numIterations = _iterations;
 			gradientOffset += tensorSizeInElements;
 		}
 
-		await device.queue.onSubmittedWorkDone();
 
 		// compute type 4 - update data
 		const numUpdates = backwardTape.length;
