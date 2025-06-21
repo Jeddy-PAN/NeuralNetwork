@@ -67,9 +67,9 @@ export async function startTrain(datasetName: string) {
 }
 
 // /api/dataset/{dataset_name}
-export async function fetchDataset(client_id: string): Promise<string> {
+export async function fetchDataset(client_id: string, dataset_name: string): Promise<string> {
 	try {
-		const response = await fetch(`${serverUrl}${SERVER_CONFIG.endpoints.getDataset}/${client_id}`, {
+		const response = await fetch(`${serverUrl}${SERVER_CONFIG.endpoints.getDataset}/${client_id}/${dataset_name}`, {
 			method: 'GET',
 			headers: {
 				'Content-Type': 'application/json',
@@ -93,6 +93,26 @@ export async function setReadyForTrain(client_id: string): Promise<void> {
 	try {
 		console.log('set ready for train', client_id);
 		const response = await fetch(`${serverUrl}${SERVER_CONFIG.endpoints.readyToTrain}/${client_id}`, {
+			method: 'GET',
+			headers: {
+				'Content-Type': 'application/json',
+				'Cache-Control': 'no-cache', // 禁用缓存
+			},
+		});
+		if (!response.ok) {
+			throw new Error('Network response was not ok');
+		}
+		const json = await response.json();
+		console.log('LOG: ', json);
+	} catch (error) {
+		console.error('There has been a problem with your fetch operation:', error);
+	}
+}
+
+export async function NotReadyForTrain(client_id: string): Promise<void> {
+		try {
+		console.log('set not ready for train', client_id);
+		const response = await fetch(`${serverUrl}${SERVER_CONFIG.endpoints.notReadyToTrain}/${client_id}`, {
 			method: 'GET',
 			headers: {
 				'Content-Type': 'application/json',

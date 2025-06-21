@@ -383,14 +383,14 @@ async function MatMul(Offsets, FlatData, BackwardTape, GradientTape, _iterations
 	
 	// 建立WebSocket连接
 	const clientId = localStorage.getItem('client_id');
-	if (clientId) {
-		try {
-			await wsManager.connect(clientId);
-			console.log('WebSocket connection established');
-		} catch (error) {
-			console.warn('WebSocket connection failed, will use polling fallback:', error);
-		}
-	}
+	// if (clientId) {
+	// 	try {
+	// 		await wsManager.connect(clientId);
+	// 		console.log('WebSocket connection established');
+	// 	} catch (error) {
+	// 		console.warn('WebSocket connection failed, will use polling fallback:', error);
+	// 	}
+	// }
 
 	for (let iteration = 0; iteration < numIterations + 3 * framerate; iteration++) {
 		if (stopFlag.value == true) {
@@ -751,9 +751,9 @@ async function MatMul(Offsets, FlatData, BackwardTape, GradientTape, _iterations
 	console.log('iteration complete');
 	
 	// 清理WebSocket连接
-	if (wsManager.isConnected()) {
-		wsManager.disconnect();
-	}
+	// if (wsManager.isConnected()) {
+	// 	wsManager.disconnect();
+	// }
 	
 	return;
 }

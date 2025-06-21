@@ -21,7 +21,7 @@ app.add_middleware(
 )
 
 # 全局变量
-csv_filename = '../public/Datasets/dataClass1.csv'
+csv_filename = '../public/Datasets/'
 gradient_storage: Dict[int, Dict[str, Dict]] = {}
 ready_clients: List[str] = []
 new_gradient: List[List[float]] = []
@@ -223,14 +223,35 @@ def _get_performance_tier(client_id: str) -> str:
 async def ready_to_train(client_id: str):
 	global EXPECTED_CLIENTS
 
-	ready_clients.append(client_id)
-	EXPECTED_CLIENTS = len(ready_clients)
+	if(client_id not in ready_clients):
+		ready_clients.append(client_id)
+		EXPECTED_CLIENTS = len(ready_clients)
 
-	return {
-		"status": "success",
-		"message": "client is ready to train",
-		"client_id": client_id
-	}
+		return {
+			"status": "success",
+			"message": "client is ready to train",
+			"client_id": client_id
+		}
+
+@app.get("/not_ready_to_train/{client_id}")
+async def not_ready_to_train(client_id: str):
+	global EXPECTED_CLIENTS
+
+	if (client_id in ready_clients):
+		ready_clients.remove(client_id)
+		EXPECTED_CLIENTS = len(ready_clients)
+		return {
+			"status": "success",
+			"message": "Client is removed",
+			"client_id": client_id
+		}
+	else:
+		return {
+			"status": "fail",
+			"message": "There is no such client or other errors exist",
+			"client_id": client_id
+		}
+
 
 def split_csv(file_path, total_part_num):
 	df = pandas.read_csv(file_path)
@@ -244,8 +265,8 @@ def split_csv(file_path, total_part_num):
 		print("part", i, "len:", len(df_part))
 		df_part.to_csv(file_path[:-4] + f'_part{i}.csv', index=False)
 
-@app.get("/get_dataset/{client_id}")
-async def get_dataset(client_id: str):
+@app.get("/get_dataset/{client_id}/{dataset_name}")
+async def get_dataset(client_id: str, dataset_name: str):
 	if client_id not in ready_clients:
 		return {
 				"status": "error",
@@ -260,9 +281,10 @@ async def get_dataset(client_id: str):
 				"client_id": client_id
 		}
 	
-	split_csv(csv_filename, len(ready_clients))
+	csv_file = csv_filename + dataset_name
+	split_csv(csv_file, len(ready_clients))
 	client_part_index = ready_clients.index(client_id)
-	part_filename = csv_filename[:-4] + f'_part{client_part_index}.csv'
+	part_filename = csv_file[:-4] + f'_part{client_part_index}.csv'
 	return FileResponse(part_filename, media_type='text/csv', filename=f'part{client_id}.csv')
 
 @app.websocket("/ws/{client_id}")
