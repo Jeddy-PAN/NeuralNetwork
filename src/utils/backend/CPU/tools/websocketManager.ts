@@ -9,6 +9,11 @@ class WebSocketManager {
     private reconnectDelay: number = 1000;
     private messageHandlers: Map<string, Function[]> = new Map();
     private isConnecting: boolean = false;
+    private pendingRequests: Map<string, {
+        resolve: Function;
+        reject: Function;
+        timeout: NodeJS.Timeout;
+    }> = new Map();
 
     constructor() {
         this.setupMessageHandlers();
@@ -19,6 +24,8 @@ class WebSocketManager {
         this.on('round_complete', this.handleRoundComplete.bind(this));
         this.on('gradient_received', this.handleGradientReceived.bind(this));
         this.on('heartbeat_ack', this.handleHeartbeat.bind(this));
+        this.on('response', this.handleResponse.bind(this));
+        this.on('error', this.handleError.bind(this));
     }
 
     async connect(clientId: string): Promise<boolean> {
@@ -122,6 +129,44 @@ class WebSocketManager {
         return false;
     }
 
+    // 发送请求并等待响应
+    async sendRequest(type: string, data: any = {}, timeoutMs: number = 30000): Promise<any> {
+        return new Promise((resolve, reject) => {
+            const requestId = this.generateRequestId();
+            
+            // 设置超时
+            const timeout = setTimeout(() => {
+                this.pendingRequests.delete(requestId);
+                reject(new Error(`Request ${type} timeout after ${timeoutMs}ms`));
+            }, timeoutMs);
+
+            // 存储Promise解析器
+            this.pendingRequests.set(requestId, {
+                resolve,
+                reject,
+                timeout
+            });
+
+            // 发送请求
+            const success = this.send({
+                type,
+                request_id: requestId,
+                client_id: this.clientId,
+                ...data
+            });
+
+            if (!success) {
+                this.pendingRequests.delete(requestId);
+                clearTimeout(timeout);
+                reject(new Error('Failed to send WebSocket message'));
+            }
+        });
+    }
+
+    private generateRequestId(): string {
+        return `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    }
+
     private handleMessage(message: any) {
         const { type } = message;
         const handlers = this.messageHandlers.get(type) || [];
@@ -133,6 +178,32 @@ class WebSocketManager {
                 console.error(`Error in message handler for ${type}:`, error);
             }
         });
+    }
+
+    private handleResponse(message: any) {
+        const { request_id, status, data, error } = message;
+        const pending = this.pendingRequests.get(request_id);
+        
+        if (pending) {
+            clearTimeout(pending.timeout);
+            if (status === 'success') {
+                pending.resolve(data);
+            } else {
+                pending.reject(new Error(error || 'Request failed'));
+            }
+            this.pendingRequests.delete(request_id);
+        }
+    }
+
+    private handleError(message: any) {
+        const { request_id, error } = message;
+        const pending = this.pendingRequests.get(request_id);
+        
+        if (pending) {
+            clearTimeout(pending.timeout);
+            pending.reject(new Error(error || 'Unknown error'));
+            this.pendingRequests.delete(request_id);
+        }
     }
 
     on(messageType: string, handler: Function): void {
@@ -175,6 +246,13 @@ class WebSocketManager {
     }
 
     disconnect() {
+        // 清理所有待处理的请求
+        for (const [requestId, pending] of this.pendingRequests.entries()) {
+            clearTimeout(pending.timeout);
+            pending.reject(new Error('WebSocket disconnected'));
+        }
+        this.pendingRequests.clear();
+
         if (this.ws) {
             this.ws.close();
             this.ws = null;
@@ -183,6 +261,48 @@ class WebSocketManager {
 
     isConnected(): boolean {
         return this.ws !== null && this.ws.readyState === WebSocket.OPEN;
+    }
+
+    // WebSocket API 方法
+    async getClientId(): Promise<string> {
+        const response = await this.sendRequest('get_client_id');
+        return response.client_id;
+    }
+
+    async registerDevice(deviceInfo: any): Promise<any> {
+        return await this.sendRequest('register_device', deviceInfo);
+    }
+
+    async submitBenchmark(benchmark: any): Promise<any> {
+        return await this.sendRequest('submit_benchmark', benchmark);
+    }
+
+    async getDataset(datasetName: string): Promise<string> {
+        const response = await this.sendRequest('get_dataset', { dataset_name: datasetName });
+        return response.csv_data;
+    }
+
+    async startTrain(datasetName: string): Promise<any> {
+        return await this.sendRequest('start_train', { dataset_name: datasetName });
+    }
+
+    async submitGradients(gradient: any, computeTime: number): Promise<any> {
+        return await this.sendRequest('submit_gradients', {
+            gradient,
+            compute_time: computeTime
+        });
+    }
+
+    async getNewGradient(): Promise<any> {
+        return await this.sendRequest('get_new_gradient');
+    }
+
+    async checkRoundStatus(): Promise<any> {
+        return await this.sendRequest('check_round_status');
+    }
+
+    async resetServer(): Promise<any> {
+        return await this.sendRequest('reset');
     }
 }
 
@@ -242,7 +362,7 @@ class RoundManager {
 
 export const roundManager = new RoundManager();
 
-// 简化的梯度提交函数，由服务端管理round_id
+// 简化的梯度提交函数，使用WebSocket
 export async function submitGradientsWithWebSocket(
     client_id: string, 
     gradient: any, 
@@ -254,24 +374,8 @@ export async function submitGradientsWithWebSocket(
             await wsManager.connect(client_id);
         }
 
-        // 提交梯度，不传递round_id，由服务端管理
-        const response = await fetch(`${SERVER_CONFIG.baseUrl}${SERVER_CONFIG.endpoints.submitGradients}`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                client_id: client_id,
-                gradient: gradient,
-                compute_time: compute_time
-            }),
-        });
-
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const responseJson = await response.json();
+        // 通过WebSocket提交梯度
+        const responseJson = await wsManager.submitGradients(gradient, compute_time);
 
         // 如果状态是等待，使用WebSocket等待完成
         if (responseJson.status === 'waiting') {
@@ -285,45 +389,7 @@ export async function submitGradientsWithWebSocket(
 
         return responseJson;
     } catch (error) {
-        console.error('Error submitting gradients:', error);
-        
-        // WebSocket失败时回退到轮询
-        console.log('Falling back to polling...');
-        return await fallbackToPolling();
+        console.error('Error submitting gradients via WebSocket:', error);
+        throw error;
     }
-}
-
-// 回退轮询机制（作为备用方案）
-async function fallbackToPolling(): Promise<any> {
-    let responseJson = { status: 'waiting' };
-    let attempts = 0;
-    const maxAttempts = 150; // 最多尝试150次（约60秒）
-
-    while (responseJson.status === 'waiting' && attempts < maxAttempts) {
-        await new Promise(resolve => setTimeout(resolve, 400));
-        
-        try {
-            // 检查当前轮次状态，不需要传递round_id
-            const response = await fetch(`${SERVER_CONFIG.baseUrl}${SERVER_CONFIG.endpoints.checkRoundStatus}`, {
-                method: 'GET',
-                headers: {
-                    'cache-control': 'no-cache',
-                },
-            });
-            
-            if (response.ok) {
-                responseJson = await response.json();
-            }
-        } catch (error) {
-            console.error('Polling error:', error);
-        }
-        
-        attempts++;
-    }
-
-    if (attempts >= maxAttempts) {
-        throw new Error('Timeout waiting for round completion');
-    }
-
-    return responseJson;
 }

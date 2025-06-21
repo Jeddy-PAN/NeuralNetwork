@@ -615,35 +615,40 @@ const numIterations = _iterations;
 
 			console.log('Round completed successfully via WebSocket');
 		} catch (error) {
-			console.error('WebSocket gradient submission失败:', error);
+			console.error('WebSocket gradient submission failed:', error);
 			
-			// 如果WebSocket失败，使用传统轮询方式
-			console.log('Falling back to traditional polling...');
-			responseJson = await postGradients(
-				`${server_domain}${SERVER_CONFIG.endpoints.submitGradients}`, 
-				localStorage.getItem('client_id'), 
-				gradientValues
-			);
+			// 如果WebSocket失败，仍然尝试WebSocket方式（不再回退到HTTP）
+			console.log('Retrying via WebSocket...');
+			try {
+				responseJson = await postGradients(
+					localStorage.getItem('client_id'), 
+					gradientValues, 
+					iterationTime
+				);
 
-			// 传统轮询等待
-			while (responseJson.status == 'waiting') {
-				await new Promise((resolve) => setTimeout(resolve, 400));
+				// WebSocket轮询等待
+				while (responseJson.status == 'waiting') {
+					await new Promise((resolve) => setTimeout(resolve, 400));
 
-				if (stopFlag.value == true) return;
+					if (stopFlag.value == true) return;
 
-				responseJson = await checkRoundStatus(`${server_domain}${SERVER_CONFIG.endpoints.checkRoundStatus}`);
-				console.log('LOG: Waiting for other clients (polling fallback): ', responseJson);
-			}
+					responseJson = await checkRoundStatus();
+					console.log('LOG: Waiting for other clients (WebSocket retry): ', responseJson);
+				}
 
-			if (responseJson.status !== 'complete') {
-				throw new Error('Error: Round not completed');
+				if (responseJson.status !== 'complete') {
+					throw new Error('Error: Round not completed');
+				}
+			} catch (retryError) {
+				console.error('WebSocket retry also failed:', retryError);
+				throw retryError;
 			}
 		}
 
 		gpuReadBuffer.unmap();
 
-		// 获取新梯度从服务器
-		const responseNewGradJson = await getNewGradient(`${server_domain}${SERVER_CONFIG.endpoints.getNewGradient}`);
+		// 获取新梯度从服务器 - 通过WebSocket
+		const responseNewGradJson = await getNewGradient();
 
 		const newGradientValues = responseNewGradJson.new_gradient;
 		const flattenedGradientValues = newGradientValues.flat();

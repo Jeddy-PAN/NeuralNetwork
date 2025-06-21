@@ -1,60 +1,31 @@
-export async function postGradients(url, client_id, gradient, iteration) {
+import { wsManager } from '../../CPU/tools/websocketManager.ts';
+
+// 通过WebSocket提交梯度（保留作为备用，实际应该直接使用wsManager.submitGradients）
+export async function postGradients(client_id, gradient, compute_time = 0) {
 	try {
-		const response = await fetch(url, {
-			method: 'POST',
-			headers: {
-				'Content-Type': 'application/json',
-				'cache-control': 'no-cache',
-			},
-			body: JSON.stringify({
-				client_id: client_id,
-				gradient: gradient,
-				round_id: iteration,
-			}),
-		});
-		if (!response.ok) {
-			throw new Error(`HTTP error! status: ${response.status}`);
-		}
-		let responseJson = await response.json();
-		return responseJson;
+		return await wsManager.submitGradients(gradient, compute_time);
 	} catch (error) {
-		console.error('Error:', error);
+		console.error('Error submitting gradients via WebSocket:', error);
+		throw error;
 	}
 }
 
-export async function checkRoundStatus(url, iteration) {
+// 通过WebSocket检查轮次状态
+export async function checkRoundStatus() {
 	try {
-		const response = await fetch(`${url}/?round_id=${iteration}`, {
-			method: 'GET',
-			headers: {
-				'cache-control': 'no-cache',
-			},
-		});
-		if (!response.ok) {
-			throw new Error(`HTTP error! status: ${response.status}`);
-		}
-		let responseJson = await response.json();
-		return responseJson;
+		return await wsManager.checkRoundStatus();
 	} catch (error) {
-		console.error('Error:', error);
+		console.error('Error checking round status via WebSocket:', error);
+		throw error;
 	}
 }
 
-export async function getNewGradient(url) {
+// 通过WebSocket获取新梯度
+export async function getNewGradient() {
 	try {
-		const response = await fetch(url, {
-			method: 'GET',
-			headers: {
-				'Content-Type': 'application/json',
-				'cache-control': 'no-cache',
-			},
-		});
-		if (!response.ok) {
-			throw new Error(`HTTP error! status: ${response.status}`);
-		}
-		let responseJson = await response.json();
-		return responseJson;
+		return await wsManager.getNewGradient();
 	} catch (error) {
-		console.error('Error:', error);
+		console.error('Error getting new gradient via WebSocket:', error);
+		throw error;
 	}
 }
