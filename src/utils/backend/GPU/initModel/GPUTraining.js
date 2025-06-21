@@ -128,7 +128,7 @@ async function MatMul(Offsets, FlatData, BackwardTape, GradientTape, _iterations
 		console.error('Failed to initialize client, using default configuration');
 	}
 
-	const numIterations = _iterations;
+const numIterations = _iterations;
 	const server_domain = SERVER_CONFIG.baseUrl;
 
 	// 使用动态配置的帧率
@@ -368,32 +368,26 @@ async function MatMul(Offsets, FlatData, BackwardTape, GradientTape, _iterations
 	let trueValues_all = [];
 	let errorsArray = [];
 
-	// var numExtraIterations = 1;
-	// if (model.batchSize < 50) {
-	// 	numExtraIterations = 10;
-	// } else if (model.batchSize < 100) {
-	// 	numExtraIterations = 5;
-	// } else if (model.batchSize < 200) {
-	// 	numExtraIterations = 2;
-	// }
-	let numExtraIterations = 0;
-
-	console.log('enter iteration with config:', clientTrainingConfig);
+	console.log('enter training with config:', clientTrainingConfig);
 	const startTime = performance.now();
 	
 	// 建立WebSocket连接
 	const clientId = localStorage.getItem('client_id');
-	// if (clientId) {
-	// 	try {
-	// 		await wsManager.connect(clientId);
-	// 		console.log('WebSocket connection established');
-	// 	} catch (error) {
-	// 		console.warn('WebSocket connection failed, will use polling fallback:', error);
-	// 	}
-	// }
+	if (clientId && !wsManager.isConnected()) {
+		try {
+			await wsManager.connect(clientId);
+			console.log('WebSocket connection established for training');
+		} catch (error) {
+			console.warn('WebSocket connection failed, will use polling fallback:', error);
+		}
+	}
 
-	for (let iteration = 0; iteration < numIterations + 3 * framerate; iteration++) {
+	let localIteration = 0;
+	
+	// 使用无限循环，由服务端控制训练轮次
+	while (true) {
 		if (stopFlag.value == true) {
+			console.log('Training stopped by user');
 			return;
 		}
 		
@@ -408,7 +402,7 @@ async function MatMul(Offsets, FlatData, BackwardTape, GradientTape, _iterations
 		let inputTensorId = data.tensorInputId;
 		let commandEncoder = device.createCommandEncoder();
 		let passEncoder = commandEncoder.beginComputePass();
-		let control = new Float32Array([inputTensorId, -1, -1, 0, iteration]);
+		let control = new Float32Array([inputTensorId, -1, -1, 0, localIteration]);
 		device.queue.writeBuffer(controlBuffer, 0, control.buffer, 0, control.byteLength);
 
 		passEncoder.setPipeline(computePipeline);
@@ -425,7 +419,7 @@ async function MatMul(Offsets, FlatData, BackwardTape, GradientTape, _iterations
 		let trueValuesTensorId = data.tensorTrueId;
 		commandEncoder = device.createCommandEncoder();
 		passEncoder = commandEncoder.beginComputePass();
-		control = new Float32Array([trueValuesTensorId, -1, -1, 0, iteration]);
+		control = new Float32Array([trueValuesTensorId, -1, -1, 0, localIteration]);
 		device.queue.writeBuffer(controlBuffer, 0, control.buffer, 0, control.byteLength);
 		passEncoder.setPipeline(computePipeline);
 		passEncoder.setBindGroup(0, bindGroup);
@@ -441,75 +435,62 @@ async function MatMul(Offsets, FlatData, BackwardTape, GradientTape, _iterations
 		for (let i = 0; i < numInferences; i++) {
 			const curTensorId = forwardTape[i];
 
-			// 创建 GPU 命令编码器和计算通道
 			const commandEncoder = device.createCommandEncoder();
 			const passEncoder = commandEncoder.beginComputePass();
 
-			// 设置控制缓冲区，指定当前张量 ID 和计算类型
-			let control = new Float32Array([curTensorId, -1, -1, 1, iteration]);
+			let control = new Float32Array([curTensorId, -1, -1, 1, localIteration]);
 			device.queue.writeBuffer(controlBuffer, 0, control.buffer, 0, control.byteLength);
 
-			// 设置计算管线和绑定组
 			passEncoder.setPipeline(computePipeline);
 			passEncoder.setBindGroup(0, bindGroup);
 
-			// 计算工作组大小，确保覆盖所有数据
 			let workgroupCountX = Math.ceil(model.tensors[curTensorId].rows / 16);
 			let workgroupCountY = Math.ceil(model.tensors[curTensorId].cols / 16);
 
-			// 执行计算
 			passEncoder.dispatchWorkgroups(workgroupCountX, workgroupCountY);
 			passEncoder.end();
 
-			// 提交 GPU 命令
 			const gpuCommands = commandEncoder.finish();
 			device.queue.submit([gpuCommands]);
 		}
 
-		// 在前向传播完成后，处理数据
-		// 等待 GPU 执行完成
 		await device.queue.onSubmittedWorkDone();
 
-		// 创建新的命令编码器用于复制数据
 		const readCommandEncoder = device.createCommandEncoder();
 		readCommandEncoder.copyBufferToBuffer(
-			gpuBufferFlatData, // 源缓冲区
-			0, // 源偏移量
-			gpuReadBuffer, // 目标缓冲区
-			0, // 目标偏移量
-			FlatData.byteLength // 数据大小
+			gpuBufferFlatData,
+			0,
+			gpuReadBuffer,
+			0,
+			FlatData.byteLength
 		);
 		readCommandEncoder.copyBufferToBuffer(gpuBufferAvgAccuracy, 0, gpuReadAvgAccuracyBuffer, 0, EmptyAccuracies.byteLength);
 
-		// 提交复制命令
 		const readCommands = readCommandEncoder.finish();
 		device.queue.submit([readCommands]);
 
-		// 映射缓冲区以读取数据
 		await gpuReadBuffer.mapAsync(GPUMapMode.READ);
 		await gpuReadAvgAccuracyBuffer.mapAsync(GPUMapMode.READ);
 		const arrayBuffer = new Float32Array(gpuReadBuffer.getMappedRange());
 
-		// 处理预测值、真实值和误差
 		predValues_all.push(getPredValues(arrayBuffer, model, Offsets));
 		trueValues_all.push(getTrueValues(arrayBuffer, model, Offsets));
 		errorsArray.push(getErrorValue(arrayBuffer, model, Offsets));
 		xValues_all.push(getxValues(arrayBuffer, data, Offsets));
 
-		// 解除映射以释放内存
 		gpuReadBuffer.unmap();
 		gpuReadAvgAccuracyBuffer.unmap();
 
-		// 在特定的迭代次数，计算并输出平均误差
-		if (iteration % framerate === numExtraIterations) {
+		// 每帧率次数更新UI
+		if (localIteration % framerate === 0) {
 			let xVals = [].concat(...xValues_all);
 			let predVals = [].concat(...predValues_all);
 			let trueVals = [].concat(...trueValues_all);
 			let avgError = errorsArray.reduce((sum, error) => sum + error, 0) / errorsArray.length;
 
-			console.log('avgError', avgError, 'iteration', iteration);
+			console.log('avgError', avgError, 'localIteration', localIteration);
 
-			store.setModelIterations(iteration);
+			store.setModelIterations(localIteration);
 			store.setAvgError(avgError);
 			store.setPredVals(predVals);
 			store.setTrueVals(trueVals);
@@ -533,7 +514,6 @@ async function MatMul(Offsets, FlatData, BackwardTape, GradientTape, _iterations
 		}
 
 		// compute type 2 - compute partial derivatives
-		// gradientTape [par1, child1, par2, child1, ...] in pairs
 		const numPds = gradientTape.length / 2;
 		for (let i = 0; i < numPds; i++) {
 			const parTensorId = gradientTape[2 * i];
@@ -541,7 +521,7 @@ async function MatMul(Offsets, FlatData, BackwardTape, GradientTape, _iterations
 
 			const commandEncoder = device.createCommandEncoder();
 			const passEncoder = commandEncoder.beginComputePass();
-			let control = new Float32Array([curTensorId, parTensorId, -1, 2, iteration]);
+			let control = new Float32Array([curTensorId, parTensorId, -1, 2, localIteration]);
 			device.queue.writeBuffer(controlBuffer, 0, control.buffer, 0, control.byteLength);
 			passEncoder.setPipeline(computePipeline);
 			passEncoder.setBindGroup(0, bindGroup);
@@ -561,20 +541,13 @@ async function MatMul(Offsets, FlatData, BackwardTape, GradientTape, _iterations
 					workgroupCountX = Math.ceil(model.tensors[parTensorId].cols / 16);
 					workgroupCountY = Math.ceil(model.tensors[curTensorId].cols / 16);
 				}
-			} else if (model.tensors[curTensorId].type == 3) {
-				// ReLU
-				// workgroupCountX = Math.ceil(  model.tensors[ curTensorId ].rows / 16);
-				// workgroupCountY = Math.ceil(  model.tensors[ parTensorId ].cols / 16);
 			} else if (model.tensors[curTensorId].type == 4) {
-				//softmax
 				workgroupCountX = Math.ceil(model.tensors[parTensorId].rows / 16);
 				workgroupCountY = Math.ceil(model.tensors[parTensorId].cols / 16);
 			} else if (model.tensors[curTensorId].type == 5) {
-				// CE
 				workgroupCountX = Math.ceil(model.tensors[parTensorId].rows / 16);
 				workgroupCountY = Math.ceil(model.tensors[parTensorId].cols / 16);
 			} else if (model.tensors[curTensorId].type == 7) {
-				// CE
 				workgroupCountX = Math.ceil(model.tensors[parTensorId].rows / 16);
 				workgroupCountY = Math.ceil(model.tensors[parTensorId].cols / 16);
 			}
@@ -596,10 +569,10 @@ async function MatMul(Offsets, FlatData, BackwardTape, GradientTape, _iterations
 			let passEncoder = commandEncoder.beginComputePass();
 			let control = new Float32Array([
 				currTensorId,
-				-1 /* curr parent of interest */,
-				currChildId /*curr child of interest */,
-				3 /* compute type */,
-				iteration,
+				-1,
+				currChildId,
+				3,
+				localIteration,
 			]);
 			device.queue.writeBuffer(controlBuffer, 0, control.buffer, 0, control.byteLength);
 			passEncoder.setPipeline(computePipeline);
@@ -614,7 +587,7 @@ async function MatMul(Offsets, FlatData, BackwardTape, GradientTape, _iterations
 			device.queue.submit([gpuCommands]);
 		}
 
-		// UPLOAD gradients
+		// 获取梯度
 		commandEncoder = device.createCommandEncoder();
 		commandEncoder.copyBufferToBuffer(gpuBufferFlatData, 0, gpuReadBuffer, 0, FlatData.byteLength);
 		gpuCommands = commandEncoder.finish();
@@ -627,13 +600,12 @@ async function MatMul(Offsets, FlatData, BackwardTape, GradientTape, _iterations
 		// 计算这轮的计算时间
 		const iterationTime = performance.now() - iterationStartTime;
 
-		// 使用WebSocket提交梯度（带轮询回退）
+		// 使用WebSocket提交梯度，由服务端管理round_id
 		let responseJson;
 		try {
 			responseJson = await submitGradientsWithWebSocket(
 				localStorage.getItem('client_id'), 
 				gradientValues, 
-				iteration,
 				iterationTime
 			);
 
@@ -643,15 +615,14 @@ async function MatMul(Offsets, FlatData, BackwardTape, GradientTape, _iterations
 
 			console.log('Round completed successfully via WebSocket');
 		} catch (error) {
-			console.error('WebSocket gradient submission failed:', error);
+			console.error('WebSocket gradient submission失败:', error);
 			
 			// 如果WebSocket失败，使用传统轮询方式
 			console.log('Falling back to traditional polling...');
 			responseJson = await postGradients(
 				`${server_domain}${SERVER_CONFIG.endpoints.submitGradients}`, 
 				localStorage.getItem('client_id'), 
-				gradientValues, 
-				iteration
+				gradientValues
 			);
 
 			// 传统轮询等待
@@ -660,7 +631,7 @@ async function MatMul(Offsets, FlatData, BackwardTape, GradientTape, _iterations
 
 				if (stopFlag.value == true) return;
 
-				responseJson = await checkRoundStatus(`${server_domain}${SERVER_CONFIG.endpoints.checkRoundStatus}`, iteration);
+				responseJson = await checkRoundStatus(`${server_domain}${SERVER_CONFIG.endpoints.checkRoundStatus}`);
 				console.log('LOG: Waiting for other clients (polling fallback): ', responseJson);
 			}
 
@@ -671,53 +642,47 @@ async function MatMul(Offsets, FlatData, BackwardTape, GradientTape, _iterations
 
 		gpuReadBuffer.unmap();
 
-		// get new gradient from server "/api/new-gradient"
+		// 获取新梯度从服务器
 		const responseNewGradJson = await getNewGradient(`${server_domain}${SERVER_CONFIG.endpoints.getNewGradient}`);
 
 		const newGradientValues = responseNewGradJson.new_gradient;
 		const flattenedGradientValues = newGradientValues.flat();
-		// console.log('LOG: new gradient received', newGradientValues);
 
 		const newGradientValuesBuffer = new Float32Array(flattenedGradientValues);
 
-		// copy flatdata to unmap gpuSetBuffer
-		const N = 15; // 每个张量在 Offsets 数组中占用的元素数量
-		let gradientOffset = 0; // newGradientValuesBuffer 的偏移量
-		const sourceBufferSize = newGradientValuesBuffer.byteLength; // 源数据缓冲区大小（字节）
-		const destinationBufferSize = gpuBufferFlatData.size; // 目标缓冲区大小（字节）
+		// 更新模型参数
+		const N = 15;
+		let gradientOffset = 0;
+		const sourceBufferSize = newGradientValuesBuffer.byteLength;
+		const destinationBufferSize = gpuBufferFlatData.size;
 
 		for (let tensor of model.tensors) {
 			const rows = tensor.rows;
 			const cols = tensor.cols;
-			const tensorSizeInElements = rows * cols; // 张量的大小
+			const tensorSizeInElements = rows * cols;
 
-			// 计算偏移量
 			const baseIndex = 3 + tensor.id * N;
 			const offsetDataIndex = baseIndex + 6;
-			const flatDataOffset = Offsets[offsetDataIndex] * 4; // 数据在 FlatData 中的字节偏移量
+			const flatDataOffset = Offsets[offsetDataIndex] * 4;
 
-			// 将梯度值写入到 gpuBufferFlatData 中
 			if (gradientOffset + tensorSizeInElements * 4 > sourceBufferSize) {
 				console.log('sourceBufferSize', sourceBufferSize);
 				throw new Error('源数据的偏移量和大小超过了源缓冲区的大小。');
 			}
 
-			// 验证目标缓冲区大小
 			if (flatDataOffset + tensorSizeInElements * 4 > destinationBufferSize) {
 				throw new Error('目标缓冲区的偏移量和大小超过了目标缓冲区的大小。');
 			}
 			device.queue.writeBuffer(
-				gpuBufferFlatData, // 目标缓冲区
-				flatDataOffset, // 目标缓冲区的偏移量
-				newGradientValuesBuffer, // 源数据缓冲区
-				gradientOffset, // 源数据的偏移量
-				tensorSizeInElements // 要写入的数据大小
+				gpuBufferFlatData,
+				flatDataOffset,
+				newGradientValuesBuffer,
+				gradientOffset,
+				tensorSizeInElements
 			);
-			// 更新偏移量
 			gradientOffset += tensorSizeInElements;
 		}
 
-		// 确保写入操作完成
 		await device.queue.onSubmittedWorkDone();
 
 		// compute type 4 - update data
@@ -729,10 +694,10 @@ async function MatMul(Offsets, FlatData, BackwardTape, GradientTape, _iterations
 			let passEncoder = commandEncoder.beginComputePass();
 			let control = new Float32Array([
 				currTensorId,
-				-1 /* curr parent of interest */,
-				-1 /*curr child of interest */,
-				4 /* compute type */,
-				iteration,
+				-1,
+				-1,
+				4,
+				localIteration,
 			]);
 			device.queue.writeBuffer(controlBuffer, 0, control.buffer, 0, control.byteLength);
 			passEncoder.setPipeline(computePipeline);
@@ -746,14 +711,11 @@ async function MatMul(Offsets, FlatData, BackwardTape, GradientTape, _iterations
 			let gpuCommands = commandEncoder.finish();
 			device.queue.submit([gpuCommands]);
 		}
+
+		localIteration++;
 	}
 
-	console.log('iteration complete');
-	
-	// 清理WebSocket连接
-	// if (wsManager.isConnected()) {
-	// 	wsManager.disconnect();
-	// }
+	console.log('Training complete');
 	
 	return;
 }

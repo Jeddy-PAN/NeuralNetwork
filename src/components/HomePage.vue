@@ -15,24 +15,9 @@
 
     <!-- 连接后功能区 -->
     <div v-if="isConnected" class="connected-functions">
-      <!-- ID 功能区 -->
+      <!-- ID 显示区 -->
       <div class="id-section">
-        <button @click="handleGetId" class="btn btn-primary">GET ID</button>
-        <div class="id-display">{{ client_id || 'NO ID' }}</div>
-      </div>
-
-      <!-- Ready 状态区 -->
-      <div class="ready-section">
-        <button 
-          @click="toggleReady"
-          class="btn btn-ready"
-        >
-          {{ isReady ? 'NO READY' : 'GET READY' }}
-        </button>
-        <div class="status-indicator">
-          <div class="dot" :class="{ ready: isReady }"></div>
-          <span>{{ isReady ? 'IS READY' : 'NOT READY' }}</span>
-        </div>
+        <div class="id-display">{{ "ID: " + ws_id || 'NO ID' }}</div>
       </div>
 
       <!-- Start 控制区 -->
@@ -43,17 +28,11 @@
             <option value="dataClass2.csv">dataClass2.csv</option>
             <option value="dataClass3.csv">dataClass3.csv</option>
           </select>
-          <select v-model="startOption2">
-            <option value="modeA">MODEA</option>
-            <option value="modeB">MODEB</option>
-          </select>
         </div>
         <button 
           @click="handleStart" 
           class="btn btn-start"
-          :class="{ disabled: !isReady }"
-          :disabled="!isReady"
-        >START</button>
+        >START TRAINING</button>
       </div>
 
       <!-- Stop 按钮 -->
@@ -75,9 +54,7 @@ import { ref } from 'vue';
 import { wsManager } from '../utils/backend/CPU/tools/websocketManager';
 import { 
     getClientId,
-    setReadyForTrain, 
     resetServer,
-    NotReadyForTrain,
 } from '../utils/backend/CPU/tools/client';
 import { setFlagTrain, setFlagStop } from '../utils/backend/GPU/initModel/GPUTraining';
 import ClassifyPlot from './ClassifyPlot.vue';
@@ -87,11 +64,8 @@ import { startTrain } from '../utils/backend/CPU/ModelSetup/setUpData';
 
 // 状态管理
 const isConnected = ref(false);
-const isReady = ref(false);
-const client_id = ref('');
 const ws_id = ref('');
 const dataOption = ref('dataClass1.csv');
-const startOption2 = ref('modeA');
 const resetPlotFlag = ref(false);
 
 // 连接/断开切换
@@ -99,41 +73,27 @@ const handleConnectToggle = async() => {
   if (isConnected.value) {
     ws_id.value = await getClientId();
     try {
-			await wsManager.connect(ws_id.value);
-			console.log('WebSocket connection established');
-		} catch (error) {
-			console.warn('WebSocket connection failed, will use polling fallback:', error);
-	}
+      await wsManager.connect(ws_id.value);
+      console.log('WebSocket connection established');
+    } catch (error) {
+      console.warn('WebSocket connection failed:', error);
+      isConnected.value = false;
+    }
   } else {
-    if(wsManager.isConnected) {
-        wsManager.disconnect();
-        await NotReadyForTrain(client_id.value);
-        isReady.value = false;
-        ws_id.value = '';
-        client_id.value = '';
+    if(wsManager.isConnected()) {
+      wsManager.disconnect();
+      ws_id.value = '';
     }   
   }
 };
 
-// 其他功能
-const toggleReady = async() => {
-    if(!isReady.value) {
-       await setReadyForTrain(client_id.value);
-       isReady.value = true;
-    }else {
-       await NotReadyForTrain(client_id.value);
-       isReady.value = false;
-    }
-   
-}
-
-const handleGetId = () => {
-    client_id.value = ws_id.value;
-}
-
 const handleStart = async() => {
+    if (!wsManager.isConnected()) {
+        console.warn('WebSocket not connected, cannot start training');
+        return;
+    }
     setFlagTrain();
-    console.log(dataOption.value);
+    console.log('Starting training with dataset:', dataOption.value);
     startTrain(dataOption.value);
 }
 
@@ -141,18 +101,16 @@ const handleStop = () => {
     setFlagStop();
 }
 
-const handleReset = async() => { // reset server information
+const handleReset = async() => {
     await resetServer();
-    isReady.value = false;
     resetPlotFlag.value = true;
 }
 
-const handleClear = async() => { // reset server and client both
+const handleClear = async() => {
     await handleReset();
     wsManager.disconnect();
     localStorage.clear();
     ws_id.value = '';
-    client_id.value = '';
     isConnected.value = false;
 };
 </script>
@@ -244,13 +202,6 @@ input:checked + .slider:before {
   min-width: 120px;
 }
 
-/* Ready 状态区 */
-.ready-section {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
 /* 按钮基础样式 */
 .btn {
   padding: 8px 16px;
@@ -261,27 +212,9 @@ input:checked + .slider:before {
   transition: background-color 0.2s;
 }
 
-.btn-primary {
-  background-color: #646cff;
-}
-
-.btn-ready {
-  background-color: #f0ad4e;
-}
-
-.btn-ready.disabled {
-  background-color: #aaa;
-  cursor: default;
-}
-
 .btn-start {
   background-color: #28a745;
   width: 100%;
-}
-
-.btn-start.disabled {
-  background-color: #aaa;
-  cursor: default;
 }
 
 .btn-stop {
@@ -294,24 +227,6 @@ input:checked + .slider:before {
 
 .btn-clear {
   background-color: #343a40;
-}
-
-/* 状态指示器 */
-.status-indicator {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.dot {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background-color: #999;
-}
-
-.dot.ready {
-  background-color: #42b983;
 }
 
 /* Start 控制区 */

@@ -23,9 +23,9 @@ app.add_middleware(
 # 全局变量
 csv_filename = '../public/Datasets/'
 gradient_storage: Dict[int, Dict[str, Dict]] = {}
-ready_clients: List[str] = []
 new_gradient: List[List[float]] = []
 round_start_times: Dict[int, float] = {}
+current_round_id = 0  # 服务端统一管理的轮次ID
 
 # 客户端设备和性能信息
 client_device_info: Dict[str, Dict] = {}
@@ -35,7 +35,6 @@ client_performance: Dict[str, Dict] = {}
 MAX_WAIT_TIME_PC = 30  # PC设备最大等待时间(秒)
 MAX_WAIT_TIME_MOBILE = 60  # 移动设备最大等待时间(秒)
 PERFORMANCE_WEIGHT_THRESHOLD = 0.3  # 性能权重阈值
-EXPECTED_CLIENTS = 1
 
 class DeviceInfo(BaseModel):
 	client_id: str
@@ -48,7 +47,6 @@ class DeviceInfo(BaseModel):
 class GradientData(BaseModel):
 	client_id: str
 	gradient: List[List[float]]
-	round_id: int
 	compute_time: float  # 客户端计算时间
 
 class PerformanceBenchmark(BaseModel):
@@ -80,10 +78,14 @@ class ConnectionManager:
                 print(f"Failed to send message to {client_id}: {e}")
                 self.disconnect(client_id)
     
-    async def broadcast_to_round(self, message: dict, round_id: int):
-        """向参与特定轮次的所有客户端广播消息"""
-        for client_id in ready_clients:
+    async def broadcast_to_connected(self, message: dict):
+        """向所有连接的客户端广播消息"""
+        for client_id in list(self.active_connections.keys()):
             await self.send_personal_message(message, client_id)
+    
+    def get_connected_clients(self) -> List[str]:
+        """获取当前连接的客户端列表"""
+        return list(self.active_connections.keys())
 
 manager = ConnectionManager()
 
@@ -219,40 +221,6 @@ def _get_performance_tier(client_id: str) -> str:
 	else:
 		return "low"
 
-@app.get("/ready_to_train/{client_id}")
-async def ready_to_train(client_id: str):
-	global EXPECTED_CLIENTS
-
-	if(client_id not in ready_clients):
-		ready_clients.append(client_id)
-		EXPECTED_CLIENTS = len(ready_clients)
-
-		return {
-			"status": "success",
-			"message": "client is ready to train",
-			"client_id": client_id
-		}
-
-@app.get("/not_ready_to_train/{client_id}")
-async def not_ready_to_train(client_id: str):
-	global EXPECTED_CLIENTS
-
-	if (client_id in ready_clients):
-		ready_clients.remove(client_id)
-		EXPECTED_CLIENTS = len(ready_clients)
-		return {
-			"status": "success",
-			"message": "Client is removed",
-			"client_id": client_id
-		}
-	else:
-		return {
-			"status": "fail",
-			"message": "There is no such client or other errors exist",
-			"client_id": client_id
-		}
-
-
 def split_csv(file_path, total_part_num):
 	df = pandas.read_csv(file_path)
 	df_len = len(df)
@@ -267,23 +235,25 @@ def split_csv(file_path, total_part_num):
 
 @app.get("/get_dataset/{client_id}/{dataset_name}")
 async def get_dataset(client_id: str, dataset_name: str):
-	if client_id not in ready_clients:
+	connected_clients = manager.get_connected_clients()
+	
+	if client_id not in connected_clients:
 		return {
 				"status": "error",
-				"message": "client is not ready to train",
+				"message": "client is not connected",
 				"client_id": client_id
 		}
 	
-	if len(ready_clients) == 0:
+	if len(connected_clients) == 0:
 		return {
 				"status": "error",
-				"message": "client is not ready to train",
+				"message": "no clients connected",
 				"client_id": client_id
 		}
 	
 	csv_file = csv_filename + dataset_name
-	split_csv(csv_file, len(ready_clients))
-	client_part_index = ready_clients.index(client_id)
+	split_csv(csv_file, len(connected_clients))
+	client_part_index = connected_clients.index(client_id)
 	part_filename = csv_file[:-4] + f'_part{client_part_index}.csv'
 	return FileResponse(part_filename, media_type='text/csv', filename=f'part{client_id}.csv')
 
@@ -313,17 +283,17 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
 
 @app.post("/submit_gradients")
 async def submit_gradients(data: GradientData):
-	global new_gradient
+	global new_gradient, current_round_id
 	
-	round_id = data.round_id
 	client_id = data.client_id
 	gradient = data.gradient
 	compute_time = data.compute_time
+	connected_clients = manager.get_connected_clients()
 	
-	if client_id not in ready_clients:
+	if client_id not in connected_clients:
 		return {
 			"status": "error",
-			"message": "client is not ready to train",
+			"message": "client is not connected",
 			"client_id": client_id
 		}
 
@@ -336,51 +306,56 @@ async def submit_gradients(data: GradientData):
 			client_performance[client_id]["avg_compute_time"] = (old_time + compute_time) / 2
 
 	# 初始化梯度存储
-	if round_id not in gradient_storage:
-		gradient_storage[round_id] = {}
-		round_start_times[round_id] = time.time()
+	if current_round_id not in gradient_storage:
+		gradient_storage[current_round_id] = {}
+		round_start_times[current_round_id] = time.time()
 
-	gradient_storage[round_id][client_id] = {
+	gradient_storage[current_round_id][client_id] = {
 		"gradient": gradient,
 		"compute_time": compute_time,
 		"submit_time": time.time()
 	}
 
-	print(f"Gradient received from client: {client_id}, round: {round_id}")
+	print(f"Gradient received from client: {client_id}, round: {current_round_id}")
 
 	# 检查是否应该触发聚合
-	if _should_aggregate_gradients(round_id):
-		await _aggregate_and_broadcast(round_id)
+	if _should_aggregate_gradients(current_round_id, connected_clients):
+		await _aggregate_and_broadcast(current_round_id, connected_clients)
 		
-		# 向所有客户端广播完成消息
-		await manager.broadcast_to_round({
+		# 向所有连接的客户端广播完成消息
+		await manager.broadcast_to_connected({
 			"type": "round_complete",
-			"round_id": round_id,
+			"round_id": current_round_id,
 			"status": "complete",
 			"message": "gradients aggregated and ready"
-		}, round_id)
+		})
 		
-		return {
+		response = {
 			"status": "complete",
 			"message": "gradients aggregated",
-			"round_id": round_id
+			"round_id": current_round_id
 		}
+		
+		# 增加轮次ID，准备下一轮
+		current_round_id += 1
+		
+		return response
 	else:
 		# 向当前客户端发送等待确认
 		await manager.send_personal_message({
 			"type": "gradient_received",
-			"round_id": round_id,
+			"round_id": current_round_id,
 			"status": "waiting",
-			"waiting_for": len(ready_clients) - len(gradient_storage[round_id])
+			"waiting_for": len(connected_clients) - len(gradient_storage[current_round_id])
 		}, client_id)
 		
 		return {
 			"status": "waiting", 
-			"round_id": round_id,
-			"message": f"{len(ready_clients) - len(gradient_storage[round_id])} more clients needed"
+			"round_id": current_round_id,
+			"message": f"{len(connected_clients) - len(gradient_storage[current_round_id])} more clients needed"
 		}
 
-async def _aggregate_and_broadcast(round_id: int):
+async def _aggregate_and_broadcast(round_id: int, connected_clients: List[str]):
 	"""聚合梯度并准备广播"""
 	global new_gradient
 	
@@ -388,7 +363,7 @@ async def _aggregate_and_broadcast(round_id: int):
 	selected_clients = list(round_data.keys())
 	
 	# 获取客户端权重
-	if len(selected_clients) < len(ready_clients):
+	if len(selected_clients) < len(connected_clients):
 		# 使用加权聚合
 		weights = [client_performance.get(cid, {}).get("performance_weight", 1.0) for cid in selected_clients]
 		total_weight = sum(weights)
@@ -422,15 +397,15 @@ async def _aggregate_and_broadcast(round_id: int):
 	if round_id in round_start_times:
 		del round_start_times[round_id]
 
-def _should_aggregate_gradients(round_id: int) -> bool:
+def _should_aggregate_gradients(round_id: int, connected_clients: List[str]) -> bool:
 	"""智能判断是否应该聚合梯度"""
 	if round_id not in gradient_storage:
 		return False
 	
 	submitted_clients = list(gradient_storage[round_id].keys())
 	
-	# 策略1: 所有客户端都提交了
-	if len(submitted_clients) == len(ready_clients):
+	# 策略1: 所有连接的客户端都提交了
+	if len(submitted_clients) == len(connected_clients):
 		return True
 	
 	# 策略2: 超时策略
@@ -450,32 +425,35 @@ def _should_aggregate_gradients(round_id: int) -> bool:
 	total_submitted_weight = sum(client_performance.get(cid, {}).get("performance_weight", 1.0) 
 							   for cid in submitted_clients)
 	total_possible_weight = sum(client_performance.get(cid, {}).get("performance_weight", 1.0) 
-							  for cid in ready_clients)
+							  for cid in connected_clients)
 	
 	if total_possible_weight > 0 and (total_submitted_weight / total_possible_weight) > PERFORMANCE_WEIGHT_THRESHOLD:
 		return True
 	
 	return False
 
-@app.get("/check_round_status/")
-async def check_round_status(round_id: int):
-	if (round_id not in gradient_storage):
+@app.get("/check_round_status")
+async def check_round_status():
+	"""检查当前轮次状态"""
+	if current_round_id not in gradient_storage:
 		return {
 			"status": "complete",
-			"message": "all gradients received",
-			"round_id": round_id,
+			"message": "current round complete or not started",
+			"round_id": current_round_id,
 		}
-	if (len(gradient_storage[round_id]) < len(ready_clients)):
+	
+	connected_clients = manager.get_connected_clients()
+	if len(gradient_storage[current_round_id]) < len(connected_clients):
 		return {
 			"status": "waiting",
-			"round_id": round_id,
+			"round_id": current_round_id,
 			"message": "waiting other clients to submit gradients"
 		}
 	else:
 		return {
 			"status": "complete",
 			"message": "all gradients received",
-			"round_id": round_id,
+			"round_id": current_round_id,
 		}
 	
 @app.get("/get_new_gradient")
@@ -487,10 +465,35 @@ async def get_new_gradient():
 
 @app.get("/reset")
 async def reset_server():
-	ready_clients.clear()
+	global current_round_id
+	
+	# 清理所有状态
 	new_gradient.clear()
 	gradient_storage.clear()
 	round_start_times.clear()
 	client_device_info.clear()
 	client_performance.clear()
+	current_round_id = 0
+	
 	return {"status": "success", "message": "server reset"}
+
+@app.get("/start_train/{dataset_name}")
+async def start_train(dataset_name: str):
+	"""开始训练，重置轮次计数器"""
+	global current_round_id
+	current_round_id = 0
+	
+	connected_clients = manager.get_connected_clients()
+	
+	# 广播训练开始消息
+	await manager.broadcast_to_connected({
+		"type": "training_start",
+		"dataset": dataset_name,
+		"participants": len(connected_clients)
+	})
+	
+	return {
+		"status": "success",
+		"message": f"training started with dataset {dataset_name}",
+		"participants": len(connected_clients)
+	}

@@ -1,14 +1,8 @@
 <script setup>
-import { startTrain } from './utils/backend/CPU/ModelSetup/setUpData.ts';
-import { setFlagTrain, setFlagStop } from './utils/backend/GPU/initModel/GPUTraining.js';
 import {
-	setReadyForTrain,
 	getClientId,
-	resetServer,
 } from './utils/backend/CPU/tools/client.ts';
 import { ref } from 'vue';
-import LossPlot from './components/LossPlot.vue';
-import ClassifyPlot from './components/ClassifyPlot.vue';
 import HomePage from './components/HomePage.vue';
 
 function clearLocalStorage() {

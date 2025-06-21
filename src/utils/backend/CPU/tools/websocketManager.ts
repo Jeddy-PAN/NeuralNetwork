@@ -227,12 +227,6 @@ class RoundManager {
                 reject,
                 timeout
             });
-
-            // 通知服务器加入轮次
-            wsManager.send({
-                type: 'join_round',
-                round_id: roundId
-            });
         });
     }
 
@@ -248,11 +242,10 @@ class RoundManager {
 
 export const roundManager = new RoundManager();
 
-// 增强的梯度提交函数
+// 简化的梯度提交函数，由服务端管理round_id
 export async function submitGradientsWithWebSocket(
     client_id: string, 
     gradient: any, 
-    iteration: number,
     compute_time: number = 0
 ): Promise<any> {
     try {
@@ -261,7 +254,7 @@ export async function submitGradientsWithWebSocket(
             await wsManager.connect(client_id);
         }
 
-        // 提交梯度
+        // 提交梯度，不传递round_id，由服务端管理
         const response = await fetch(`${SERVER_CONFIG.baseUrl}${SERVER_CONFIG.endpoints.submitGradients}`, {
             method: 'POST',
             headers: {
@@ -270,7 +263,6 @@ export async function submitGradientsWithWebSocket(
             body: JSON.stringify({
                 client_id: client_id,
                 gradient: gradient,
-                round_id: iteration,
                 compute_time: compute_time
             }),
         });
@@ -283,10 +275,11 @@ export async function submitGradientsWithWebSocket(
 
         // 如果状态是等待，使用WebSocket等待完成
         if (responseJson.status === 'waiting') {
-            console.log(`Waiting for round ${iteration} to complete via WebSocket...`);
+            const round_id = responseJson.round_id;
+            console.log(`Waiting for round ${round_id} to complete via WebSocket...`);
             
             // 等待WebSocket通知轮次完成
-            const result = await roundManager.waitForRoundComplete(iteration);
+            const result = await roundManager.waitForRoundComplete(round_id);
             return result;
         }
 
@@ -296,12 +289,12 @@ export async function submitGradientsWithWebSocket(
         
         // WebSocket失败时回退到轮询
         console.log('Falling back to polling...');
-        return await fallbackToPolling(iteration);
+        return await fallbackToPolling();
     }
 }
 
 // 回退轮询机制（作为备用方案）
-async function fallbackToPolling(iteration: number): Promise<any> {
+async function fallbackToPolling(): Promise<any> {
     let responseJson = { status: 'waiting' };
     let attempts = 0;
     const maxAttempts = 150; // 最多尝试150次（约60秒）
@@ -310,7 +303,8 @@ async function fallbackToPolling(iteration: number): Promise<any> {
         await new Promise(resolve => setTimeout(resolve, 400));
         
         try {
-            const response = await fetch(`${SERVER_CONFIG.baseUrl}${SERVER_CONFIG.endpoints.checkRoundStatus}/?round_id=${iteration}`, {
+            // 检查当前轮次状态，不需要传递round_id
+            const response = await fetch(`${SERVER_CONFIG.baseUrl}${SERVER_CONFIG.endpoints.checkRoundStatus}`, {
                 method: 'GET',
                 headers: {
                     'cache-control': 'no-cache',
