@@ -41,9 +41,9 @@ import main from '../wgsl_operations/main.wgsl';
 import { getxValues, getPredValues, getTrueValues, getErrorValue, getGradientValues } from './testSet.js';
 import { ref } from 'vue';
 import { useComputeGraphStore } from '../../../../store/computeGraphStore.js';
-import { getNewGradient, checkRoundStatus, postGradients } from './network.js';
+import { getNewGradient } from './network.js';
 import { SERVER_CONFIG } from '../../../../config/serverConfig.ts';
-import { registerDevice, submitBenchmark, detectDeviceType } from '../../CPU/tools/deviceDetector.ts';
+import { registerDevice, submitBenchmark } from '../../CPU/tools/deviceDetector.ts';
 import { getClientId } from '../../CPU/tools/client.ts';
 import { submitGradientsWithWebSocket, wsManager } from '../../CPU/tools/websocketManager.ts';
 import VConsole from 'vconsole';
@@ -502,7 +502,7 @@ const numIterations = _iterations;
 				const elapsedTime = endTime - startTime;
 				console.log('Elapsed time for whole Training', elapsedTime, 'ms');
 				console.log('Training complete with avgError:', avgError);
-				store.setTrainingComplete(true);
+				wsManager.disconnect();
 				stopFlag.value = true;
 				break;
 			}
@@ -616,33 +616,6 @@ const numIterations = _iterations;
 
 		} catch (error) {
 			console.error('WebSocket gradient submission failed:', error);
-			
-			// 如果WebSocket失败，仍然尝试WebSocket方式（不再回退到HTTP）
-			console.log('Retrying via WebSocket...');
-			try {
-				responseJson = await postGradients(
-					localStorage.getItem('client_id'), 
-					gradientValues, 
-					iterationTime
-				);
-
-				// WebSocket轮询等待
-				while (responseJson.status == 'waiting') {
-					await new Promise((resolve) => setTimeout(resolve, 400));
-
-					if (stopFlag.value == true) return;
-
-					responseJson = await checkRoundStatus();
-					console.log('LOG: Waiting for other clients (WebSocket retry): ', responseJson);
-				}
-
-				if (responseJson.status !== 'complete') {
-					throw new Error('Error: Round not completed');
-				}
-			} catch (retryError) {
-				console.error('WebSocket retry also failed:', retryError);
-				throw retryError;
-			}
 		}
 
 		gpuReadBuffer.unmap();

@@ -95,7 +95,19 @@ class ConnectionManager:
             del self.active_connections[client_id]
             if client_id in self.connection_times:
                 del self.connection_times[client_id]
+
+            # 从全局字典中移除客户端信息
+            if client_id in client_device_info:
+                del client_device_info[client_id]
+                logger.info(f"已为断开连接的客户端 {client_id} 移除设备信息")
+            if client_id in client_performance:
+                del client_performance[client_id]
+                logger.info(f"已为断开连接的客户端 {client_id} 移除性能数据")
+            
             logger.info(f"WebSocket disconnected: {client_id}")
+
+            # 更新剩余客户端的性能权重
+            _update_performance_weights()
             
             # 检查是否影响当前训练轮次
             await self._handle_client_disconnect(client_id)
@@ -299,6 +311,9 @@ async def submit_benchmark_handler(benchmark: PerformanceBenchmark):
     
     # 更新基准测试分数
     client_performance[client_id]["benchmark_score"] = benchmark.tensor_operations_per_sec
+    logger.error(f"Benchmark submitted by {client_id}: "
+                 f"Time={benchmark.tensor_operations_per_sec}, "
+                 f"Batch Size={benchmark.batch_size}, ")
     
     # 计算性能权重
     _update_performance_weights()
@@ -500,30 +515,50 @@ def _calculate_batch_size(device_info: DeviceInfo) -> int:
             return 4
 
 def _update_performance_weights():
-    """更新所有客户端的性能权重"""
+    """更新所有客户端的性能权重。
+    
+    该函数根据客户端提交的基准测试分数（每秒张量操作数）来计算其在联邦学习中的权重。
+    为了使权重分布更加均匀，我们对分数进行平方根处理，然后进行归一化，使总和为1。
+    这可以防止单个高性能设备获得过大的权重。
+    """
+    
+    # 检查是否有客户端性能数据
     if not client_performance:
         return
     
-    scores = [
-        perf["benchmark_score"] 
-        for perf in client_performance.values() 
-        if perf["benchmark_score"] > 0
-    ]
+    # 1. 提取所有客户端的有效基准测试分数
+    scores = {
+        client_id: perf["benchmark_score"]
+        for client_id, perf in client_performance.items()
+        if perf.get("benchmark_score", 0) > 0
+    }
     
     if not scores:
         return
+        
+    # 2. 对分数进行平方根处理，以平滑分布
+    sqrt_scores = {client_id: np.sqrt(score) for client_id, score in scores.items()}
     
-    min_score = min(scores)
-    max_score = max(scores)
-    score_range = max_score - min_score
+    # 3. 计算平方根处理后分数的总和
+    total_sqrt_score = sum(sqrt_scores.values())
     
-    for client_id, perf in client_performance.items():
-        if perf["benchmark_score"] > 0:
-            if score_range > 0:
-                normalized_score = (perf["benchmark_score"] - min_score) / score_range
-            else:
-                normalized_score = 1.0
-            perf["performance_weight"] = 0.1 + 0.9 * normalized_score
+    # 4. 标准化权重
+    if total_sqrt_score == 0:
+        num_clients = len(scores)
+        if num_clients > 0:
+            avg_weight = 1.0 / num_clients
+            for client_id in scores.keys():
+                client_performance[client_id]["performance_weight"] = avg_weight
+                logger.error(f"客户端 {client_id} 的性能分数为0，分配平均权重: {avg_weight:.3f}")
+        return
+
+    # 按处理后分数的比例分配权重
+    for client_id, sqrt_score in sqrt_scores.items():
+        weight = sqrt_score / total_sqrt_score
+        client_performance[client_id]["performance_weight"] = weight
+        original_score = scores[client_id]
+        logger.error(f"更新客户端 {client_id} 的性能权重: {weight:.3f} (原始分数: {original_score})")
+
 
 def _generate_client_config(client_id: str) -> dict:
     """为客户端生成个性化训练配置"""
@@ -676,6 +711,8 @@ async def _check_should_aggregate(round_id: int, connected_clients: List[str] = 
     # if len(submitted_clients) < 2:
     #     logger.info(f"Need at least 2 clients, currently have {len(submitted_clients)}")
     #     return False
+
+    # return False
     
     # 计算剩余设备权重总和
     remaining_weight_sum = 0
@@ -688,13 +725,13 @@ async def _check_should_aggregate(round_id: int, connected_clients: List[str] = 
     random_value = np.random.random()
     should_wait = random_value < remaining_weight_sum
     
-    logger.info(f"简化等待决策 - 轮次 {round_id}: "
+    logger.error(f"简化等待决策 - 轮次 {round_id}: "
                f"剩余权重总和={remaining_weight_sum:.3f}, "
                f"随机值={random_value:.3f}, "
                f"决策={'等待' if should_wait else '聚合'}")
     
     return not should_wait
-
+ #
 @app.websocket("/ws/{client_id}")
 async def websocket_endpoint(websocket: WebSocket, client_id: str):
     await manager.connect(websocket, client_id)

@@ -310,52 +310,24 @@ export const wsManager = new WebSocketManager();
 
 // 轮次状态管理
 class RoundManager {
-    private pendingRounds: Map<number, {
-        resolve: Function;
-        reject: Function;
-        timeout: NodeJS.Timeout;
-    }> = new Map();
-
-    constructor() {
-        // 监听WebSocket事件
-        window.addEventListener('training_round_complete', this.handleRoundComplete.bind(this));
-    }
-
-    private handleRoundComplete(event: CustomEvent) {
-        const { round_id } = event.detail;
-        const pending = this.pendingRounds.get(round_id);
-        
-        if (pending) {
-            clearTimeout(pending.timeout);
-            pending.resolve(event.detail);
-            this.pendingRounds.delete(round_id);
-        }
-    }
-
     waitForRoundComplete(roundId: number, timeoutMs: number = 120000): Promise<any> {
         return new Promise((resolve, reject) => {
-            // 设置超时
+            const handleComplete = (event: CustomEvent) => {
+                if (event.detail?.round_id === roundId) {
+                    console.log(`Round ${roundId} completed successfully.`);
+                    window.removeEventListener('training_round_complete', handleComplete as EventListener);
+                    clearTimeout(timeout);
+                    resolve(event.detail);
+                }
+            };
+
             const timeout = setTimeout(() => {
-                this.pendingRounds.delete(roundId);
+                window.removeEventListener('training_round_complete', handleComplete as EventListener);
                 reject(new Error(`Round ${roundId} timeout after ${timeoutMs}ms`));
             }, timeoutMs);
 
-            // 存储Promise解析器
-            this.pendingRounds.set(roundId, {
-                resolve,
-                reject,
-                timeout
-            });
+            window.addEventListener('training_round_complete', handleComplete as EventListener);
         });
-    }
-
-    cancelRound(roundId: number) {
-        const pending = this.pendingRounds.get(roundId);
-        if (pending) {
-            clearTimeout(pending.timeout);
-            pending.reject(new Error(`Round ${roundId} cancelled`));
-            this.pendingRounds.delete(roundId);
-        }
     }
 }
 

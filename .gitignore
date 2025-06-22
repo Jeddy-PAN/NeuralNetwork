@@ -28,3 +28,4 @@ package-lock.json
 
 server/src/__pycache__/*
 server/public/Datasets/dataClass1_*
+report.md
