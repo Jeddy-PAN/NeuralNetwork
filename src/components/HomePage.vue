@@ -1,5 +1,16 @@
 <template>
   <div class="converter">
+    <div class="connect-switcher">
+      <label class="switch">
+        <input 
+          type="checkbox" 
+          v-model="isConnected" 
+          @change="handleConnectToggle"
+        >
+        <span class="slider"></span>
+      </label>
+      <span class="status-text" style="margin-left: 10px;">Connect Server</span>
+    </div>
     <!-- 连接状态显示 -->
     <div class="connection-status">
       <div class="status-indicator">
@@ -69,8 +80,32 @@ const ws_id = ref('');
 const dataOption = ref('dataClass1.csv');
 const resetPlotFlag = ref(false);
 
+const handleConnectToggle = async() => {
+  if(isConnected.value) {
+    // 获取客户端ID
+    ws_id.value = await getClientId();
+    console.log('Client ID obtained:', ws_id.value);
+        
+    // 连接WebSocket
+    await wsManager.connect(ws_id.value);
+    isConnected.value = true;
+    console.log('WebSocket connection established');
+  } else {
+      if (wsManager.isConnected()) {
+        await handleStop();
+        wsManager.disconnect();
+        ws_id.value = '';
+        console.log('WebSocket disconnected');
+      }
+      isConnected.value = false;
+  }
+}
 // 开始训练
 const handleStart = async() => {
+    if (!isConnected.value) {
+      console.warn('Not connected to the Server');
+      return;
+    }
     if (isTraining.value) {
         console.warn('Training is already in progress');
         return;
@@ -79,14 +114,8 @@ const handleStart = async() => {
     try {
         isTraining.value = true;
         
-        // 获取客户端ID
-        ws_id.value = await getClientId();
-        console.log('Client ID obtained:', ws_id.value);
-        
-        // 连接WebSocket
-        await wsManager.connect(ws_id.value);
-        isConnected.value = true;
-        console.log('WebSocket connection established');
+        // 先重置图
+        resetPlotFlag.value = true;
         
         // 开始训练
         setFlagTrain();
@@ -96,13 +125,16 @@ const handleStart = async() => {
     } catch (error) {
         console.error('Failed to start training:', error);
         isTraining.value = false;
-        isConnected.value = false;
         alert('Failed to start training: ' + error.message);
     }
 };
 
 // 停止训练
 const handleStop = async() => {
+    if (!isConnected.value) {
+      console.warn('Not connected to the Server');
+      return;
+    }
     if (!isTraining.value) {
         console.warn('No training in progress');
         return;
@@ -113,14 +145,14 @@ const handleStop = async() => {
         setFlagStop();
         console.log('Training stopped');
         
-        // 断开WebSocket连接
-        if (wsManager.isConnected()) {
-            wsManager.disconnect();
-            console.log('WebSocket disconnected');
-        }
+        // // 断开WebSocket连接
+        // if (wsManager.isConnected()) {
+        //     wsManager.disconnect();
+        //     console.log('WebSocket disconnected');
+        // }
         
         isTraining.value = false;
-        isConnected.value = false;
+        // isConnected.value = false;
         
     } catch (error) {
         console.error('Error stopping training:', error);
@@ -129,6 +161,10 @@ const handleStop = async() => {
 
 // 重置服务器
 const handleReset = async() => {
+    if (!isConnected.value) {
+      console.warn('Not connected to the Server');
+      return;
+    }
     try {
         await resetServer();
         resetPlotFlag.value = true;
@@ -140,6 +176,10 @@ const handleReset = async() => {
 
 // 清除所有数据
 const handleClear = async() => {
+    if (!isConnected.value) {
+      console.warn('Not connected to the Server');
+      return;
+    }
     try {
         // 先停止训练
         if (isTraining.value) {
@@ -152,7 +192,7 @@ const handleClear = async() => {
         // 清除本地存储
         localStorage.clear();
         ws_id.value = '';
-        isConnected.value = false;
+        // isConnected.value = false;
         isTraining.value = false;
         
         console.log('All data cleared');
@@ -171,6 +211,58 @@ const handleClear = async() => {
   border: 1px solid #e0e0e0;
   border-radius: 12px;
   background-color: #fafafa;
+}
+
+/* 连接切换器 */
+.connect-switcher {
+  display: flex;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 50px;
+  height: 24px;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #ccc;
+  transition: .4s;
+  border-radius: 24px;
+}
+
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  transition: .4s;
+  border-radius: 50%;
+}
+
+input:checked + .slider {
+  background-color: #42b983;
+}
+
+input:checked + .slider:before {
+  transform: translateX(26px);
 }
 
 /* 连接状态显示 */

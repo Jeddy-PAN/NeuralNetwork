@@ -38,7 +38,7 @@ watch(
 	() => props.resetFlag,
 	(newVal) => {
 		if (newVal == true) {
-			data.length = 1;
+			data.length = 0;
 			drawLossPlot();
 			emit('resetComplete');
 		}
