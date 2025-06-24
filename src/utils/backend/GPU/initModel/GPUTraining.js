@@ -387,7 +387,7 @@ const numIterations = _iterations;
 	let localIteration = 0;
 	
 	// 使用无限循环，由服务端控制训练轮次
-	while (true) {
+	while (localIteration < numIterations + 3 * framerate) {
 		if (stopFlag.value == true) {
 			console.log('Training stopped by user');
 			return;
@@ -497,15 +497,15 @@ const numIterations = _iterations;
 			store.setTrueVals(trueVals);
 			store.setXVals(xVals);
 
-			if (avgError < 0.2) {
-				const endTime = performance.now();
-				const elapsedTime = endTime - startTime;
-				console.log('Elapsed time for whole Training', elapsedTime, 'ms');
-				console.log('Training complete with avgError:', avgError);
-				// wsManager.disconnect();
-				stopFlag.value = true;
-				break;
-			}
+			// if (avgError < 0.2) {
+			// 	const endTime = performance.now();
+			// 	const elapsedTime = endTime - startTime;
+			// 	console.log('Elapsed time for whole Training', elapsedTime, 'ms');
+			// 	console.log('Training complete with avgError:', avgError);
+			// 	// wsManager.disconnect();
+			// 	stopFlag.value = true;
+			// 	break;
+			// }
 
 			// 清空数据数组，准备下一轮数据收集
 			predValues_all = [];
@@ -692,6 +692,12 @@ const numIterations = _iterations;
 		localIteration++;
 	}
 
+	const endTime = performance.now();
+	const elapsedTime = endTime - startTime;
+	console.log('Elapsed time for whole Training', elapsedTime, 'ms');
+			// console.log('Training complete with avgError:', avgError);
+			// wsManager.disconnect();
+	stopFlag.value = true;
 	console.log('Training complete');
 	
 	return;

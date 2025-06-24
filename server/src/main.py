@@ -576,17 +576,20 @@ def _generate_client_config(client_id: str) -> dict:
     configs = {
         "high": {
             "framerate": 10 if device_type == "pc" else 20,
-            "learning_rate": 0.01,
+            "learning_rate": 0.3,
+            "iterations": 2000,
             "local_epochs": 1
         },
         "medium": {
             "framerate": 15 if device_type == "pc" else 25,
-            "learning_rate": 0.008,
+            "learning_rate": 0.15,
+            "iterations": 3000,
             "local_epochs": 1
         },
         "low": {
             "framerate": 20 if device_type == "pc" else 30,
-            "learning_rate": 0.005,
+            "learning_rate": 0.08,
+            "iterations": 4000,
             "local_epochs": 1
         }
     }

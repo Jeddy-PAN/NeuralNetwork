@@ -216,9 +216,9 @@ function setUpModel(data: Data) {
 		},
 	];
 
-	const learningRate = 0.5;
+	const learningRate = 0.4;
 	const momentum = 0.9;
-	const batchSize = 48;
+	const batchSize = 32;
 	const iterations = 2000;
 
 	const model = new Model();

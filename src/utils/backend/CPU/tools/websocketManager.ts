@@ -1,4 +1,5 @@
 import { SERVER_CONFIG } from '../../../../config/serverConfig'
+import { setFlagTrain } from '../../GPU/initModel/GPUTraining';
 import { startTrainReal } from '../ModelSetup/setUpData';
 
 // WebSocket管理类
@@ -242,6 +243,7 @@ class WebSocketManager {
 
     private async handleTrainingStart(message: any) {
         const { dataset } = message;
+        setFlagTrain();
         await startTrainReal(dataset);
     }
 

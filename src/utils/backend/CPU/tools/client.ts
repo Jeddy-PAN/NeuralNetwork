@@ -58,7 +58,7 @@ export async function getClientId(): Promise<string> {
 export async function startTrain(datasetName: string) {
 	try {
 		const result = await wsManager.startTrain(datasetName);
-		console.log('start train via WebSocket', datasetName, result);
+		console.log('start train via WebSocket:', datasetName, result);
 		// await startTrainReal(datasetName);
 	} catch (error) {
 		console.error('There has been a problem with WebSocket start train:', error);
