@@ -1,4 +1,5 @@
 import { SERVER_CONFIG } from '../../../../config/serverConfig'
+import { startTrainReal } from '../ModelSetup/setUpData';
 
 // WebSocket管理类
 class WebSocketManager {
@@ -26,6 +27,7 @@ class WebSocketManager {
         this.on('heartbeat_ack', this.handleHeartbeat.bind(this));
         this.on('response', this.handleResponse.bind(this));
         this.on('error', this.handleError.bind(this));
+        this.on('training_start', this.handleTrainingStart.bind(this));
     }
 
     async connect(clientId: string): Promise<boolean> {
@@ -236,6 +238,11 @@ class WebSocketManager {
 
     private handleHeartbeat(message: any) {
         // 心跳响应，无需特殊处理
+    }
+
+    private async handleTrainingStart(message: any) {
+        const { dataset } = message;
+        await startTrainReal(dataset);
     }
 
     private emit(eventType: string, data: any) {

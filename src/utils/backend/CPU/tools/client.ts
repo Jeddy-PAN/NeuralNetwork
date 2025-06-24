@@ -2,6 +2,7 @@
 
 import { SERVER_CONFIG } from '../../../../config/serverConfig';
 import { wsManager } from './websocketManager';
+import { startTrainReal } from '../ModelSetup/setUpData';
 
 // 定义一个函数来请求客户端 ID
 const serverUrl = SERVER_CONFIG.baseUrl;
@@ -58,7 +59,7 @@ export async function startTrain(datasetName: string) {
 	try {
 		const result = await wsManager.startTrain(datasetName);
 		console.log('start train via WebSocket', datasetName, result);
-		return result;
+		// await startTrainReal(datasetName);
 	} catch (error) {
 		console.error('There has been a problem with WebSocket start train:', error);
 		throw error;
@@ -69,7 +70,9 @@ export async function startTrain(datasetName: string) {
 export async function fetchDataset(client_id: string, dataset_name: string): Promise<string> {
 	try {
 		if (!wsManager.isConnected()) {
-			await wsManager.connect(client_id);
+			// await wsManager.connect(client_id);
+			console.error('Not connected to Server');
+			return '';
 		}
 
 		const csvData = await wsManager.getDataset(dataset_name);

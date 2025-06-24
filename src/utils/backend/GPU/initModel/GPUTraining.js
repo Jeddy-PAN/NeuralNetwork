@@ -502,7 +502,7 @@ const numIterations = _iterations;
 				const elapsedTime = endTime - startTime;
 				console.log('Elapsed time for whole Training', elapsedTime, 'ms');
 				console.log('Training complete with avgError:', avgError);
-				wsManager.disconnect();
+				// wsManager.disconnect();
 				stopFlag.value = true;
 				break;
 			}

@@ -71,7 +71,7 @@ import {
 import { setFlagTrain, setFlagStop } from '../utils/backend/GPU/initModel/GPUTraining';
 import ClassifyPlot from './ClassifyPlot.vue';
 import LossPlot from './LossPlot.vue';
-import { startTrain } from '../utils/backend/CPU/ModelSetup/setUpData';
+import { startTrain } from '../utils/backend/CPU/tools/client';
 
 // 状态管理
 const isConnected = ref(false);
@@ -103,7 +103,7 @@ const handleConnectToggle = async() => {
 // 开始训练
 const handleStart = async() => {
     if (!isConnected.value) {
-      console.warn('Not connected to the Server');
+      console.error('Not connected to the Server');
       return;
     }
     if (isTraining.value) {
@@ -132,7 +132,7 @@ const handleStart = async() => {
 // 停止训练
 const handleStop = async() => {
     if (!isConnected.value) {
-      console.warn('Not connected to the Server');
+      console.error('Not connected to the Server');
       return;
     }
     if (!isTraining.value) {
@@ -150,7 +150,6 @@ const handleStop = async() => {
         //     wsManager.disconnect();
         //     console.log('WebSocket disconnected');
         // }
-        
         isTraining.value = false;
         // isConnected.value = false;
         
@@ -162,7 +161,7 @@ const handleStop = async() => {
 // 重置服务器
 const handleReset = async() => {
     if (!isConnected.value) {
-      console.warn('Not connected to the Server');
+      console.error('Not connected to the Server');
       return;
     }
     try {
@@ -177,7 +176,7 @@ const handleReset = async() => {
 // 清除所有数据
 const handleClear = async() => {
     if (!isConnected.value) {
-      console.warn('Not connected to the Server');
+      console.error('Not connected to the Server');
       return;
     }
     try {

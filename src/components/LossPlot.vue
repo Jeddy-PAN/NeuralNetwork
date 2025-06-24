@@ -38,7 +38,7 @@ watch(
 	() => props.resetFlag,
 	(newVal) => {
 		if (newVal == true) {
-			data.length = 0;
+			data.length = 1;
 			drawLossPlot();
 			emit('resetComplete');
 		}
@@ -76,7 +76,6 @@ const drawLossPlot = () => {
 		.x((d) => x(d.x))
 		.y((d) => y(d.y))
 		.curve(d3.curveBasis);
-
 	const xAxis = d3.axisBottom(x).ticks(5);
 	const yAxis = d3.axisLeft(y).ticks(5);
 

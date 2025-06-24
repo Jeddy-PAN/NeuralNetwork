@@ -41,6 +41,9 @@ export const useComputeGraphStore = defineStore('computeGraph', {
 			this.trueVals = payload;
 		},
 		setAvgError(payload) {
+			if (isNaN(payload)) {
+				return;
+			}
 			this.avgError = payload;
 		},
 		setModelIterations(payload) {
