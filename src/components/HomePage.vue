@@ -72,6 +72,8 @@ import { setFlagTrain, setFlagStop } from '../utils/backend/GPU/initModel/GPUTra
 import ClassifyPlot from './ClassifyPlot.vue';
 import LossPlot from './LossPlot.vue';
 import { startTrain } from '../utils/backend/CPU/tools/client';
+import { registerDevice, submitBenchmark } from '../utils/backend/CPU/tools/deviceDetector';
+import { writeParams } from '../utils/backend/CPU/ModelSetup/setUpModel';
 
 // 状态管理
 const isConnected = ref(false);
@@ -88,8 +90,10 @@ const handleConnectToggle = async() => {
         
     // 连接WebSocket
     await wsManager.connect(ws_id.value);
-    isConnected.value = true;
     console.log('WebSocket connection established');
+    const response = await initializeClient();
+    await writeParams(response);
+    isConnected.value = true;
   } else {
       if (wsManager.isConnected()) {
         await handleStop();
@@ -199,7 +203,43 @@ const handleClear = async() => {
         console.error('Failed to clear data:', error);
     }
 };
+
+async function initializeClient() {
+    try {
+        // 获取客户端ID
+        const clientId = await getClientId();
+        
+        // 注册设备信息
+        const deviceResponse = await registerDevice(clientId);
+        console.log('Device registered:', deviceResponse);
+        
+        // 运行性能基准测试
+        const benchmarkResponse = await submitBenchmark(clientId);
+        console.log('Benchmark completed:', benchmarkResponse);
+        
+        let clientTrainingConfig;
+        // 获取训练配置
+        if (benchmarkResponse.recommended_config) {
+            clientTrainingConfig = {
+                ...benchmarkResponse.recommended_config
+            };
+            console.log('Client training config:', clientTrainingConfig);
+        }
+        
+        return {
+          batch_size: deviceResponse.recommended_batch_size,
+          learning_rate: clientTrainingConfig.learning_rate,
+          iterations: clientTrainingConfig.iterations
+        };
+    } catch (error) {
+        console.error('Failed to initialize client:', error);
+        return null;
+    }
+}
+
 </script>
+
+
 
 <style scoped>
 /* 基础容器 */

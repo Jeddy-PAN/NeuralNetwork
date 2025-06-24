@@ -3,6 +3,18 @@ import { Model } from '../tools/ModelClass';
 import { MatMul } from '../../GPU/initModel/GPUTraining';
 import Data from '../tools/DataClass';
 import { Ref } from 'vue';
+
+let params = {
+	batch_size: 32,
+    learning_rate: 0.3,
+    iterations: 2000
+}
+export async function writeParams(object: any) {
+	params.batch_size = object.batch_size;
+	params.iterations = object.iterations;
+	params.learning_rate = object.learning_rate;
+}
+
 function setUpModel(data: Data) {
 	// #TODO Hardcode tensors
 	const tensors = [
@@ -216,10 +228,15 @@ function setUpModel(data: Data) {
 		},
 	];
 
-	const learningRate = 0.4;
+	console.log('params', params);
+	// const learningRate = params.learning_rate;
+	// const momentum = 0.9;
+	// const batchSize = params.batch_size;
+	// const iterations = params.iterations;
+	const learningRate = 0.3;
 	const momentum = 0.9;
-	const batchSize = 32;
-	const iterations = 2000;
+	const batchSize = 64;
+	const iterations = 3000;
 
 	const model = new Model();
 	model.numTensors = tensors.length - 1;

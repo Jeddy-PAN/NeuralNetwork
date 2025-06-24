@@ -124,10 +124,10 @@ async function MatMul(Offsets, FlatData, BackwardTape, GradientTape, _iterations
 	const store = useComputeGraphStore();
 
 	// 初始化客户端配置
-	const clientInfo = await initializeClient();
-	if (!clientInfo) {
-		console.error('Failed to initialize client, using default configuration');
-	}
+	// const clientInfo = await initializeClient();
+	// if (!clientInfo) {
+	// 	console.error('Failed to initialize client, using default configuration');
+	// }
 
 const numIterations = _iterations;
 	const server_domain = SERVER_CONFIG.baseUrl;
